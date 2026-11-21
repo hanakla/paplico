@@ -168,6 +168,45 @@ describe("ImageTextureStore", () => {
 			}
 		});
 
+		it("should report a load in flight until the canvases hear that it landed", async () => {
+			const onLoaded = vi.fn();
+			const store = new ImageTextureStore(createDevice(8192), onLoaded);
+			const canvas = store.forCanvas("canvas-1", () => 1);
+			const file = makeFile(4000, 2000);
+			try {
+				expect(store.hasLoadsInFlight).toBe(false);
+
+				canvas.get(file, span(3000));
+				expect(store.hasLoadsInFlight).toBe(true);
+
+				await flushPromises();
+				expect(onLoaded).toHaveBeenCalled();
+				expect(store.hasLoadsInFlight).toBe(false);
+			} finally {
+				store.destroy();
+			}
+		});
+
+		it("should report a prefetch in flight once a canvas draws without its image", async () => {
+			const onLoaded = vi.fn();
+			const store = new ImageTextureStore(createDevice(8192), onLoaded);
+			const canvas = store.forCanvas("canvas-1", () => 1);
+			const file = makeFile(4000, 2000);
+			try {
+				store.prefetchPreviews([file], "canvas-1");
+				expect(store.hasLoadsInFlight).toBe(false);
+
+				canvas.get(file, span(300));
+				expect(store.hasLoadsInFlight).toBe(true);
+
+				await flushPromises();
+				expect(onLoaded).toHaveBeenCalled();
+				expect(store.hasLoadsInFlight).toBe(false);
+			} finally {
+				store.destroy();
+			}
+		});
+
 		it("should stop waiting for loads that outlast the wait", () => {
 			const store = new ImageTextureStore(createDevice(8192), () => {});
 			const file = makeFile(4000, 2000);

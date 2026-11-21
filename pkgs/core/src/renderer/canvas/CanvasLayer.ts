@@ -1347,6 +1347,15 @@ export class CanvasLayer {
 		this.onRequestPartialRender = callback;
 	}
 
+	/** Whether a text layout or a brush texture this canvas drew without is
+	 *  still on its way. */
+	public get isLoadingResources(): boolean {
+		return (
+			this.textState.pendingPathLoads.size > 0 ||
+			this.assetState.pendingBrushTextureLoads.size > 0
+		);
+	}
+
 	public setOnRequestRender(callback: () => void): void {
 		this.onRequestRender = callback;
 		this.textState.onRequestRender = callback;

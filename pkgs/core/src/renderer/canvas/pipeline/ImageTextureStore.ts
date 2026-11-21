@@ -98,7 +98,12 @@ export class ImageTextureStore {
 	private readonly previews = new Map<string, TextureEntry>();
 	private readonly pendingLoads = new Map<
 		string,
-		{ promise: Promise<GPUTexture | null>; holders: Set<string> }
+		{
+			promise: Promise<GPUTexture | null>;
+			holders: Set<string>;
+			/** Whether a canvas drew without the texture this load brings. */
+			isAwaited: boolean;
+		}
 	>();
 	/** Loads a canvas waits for, then the previews fetched ahead of need. */
 	private readonly loadQueue: QueuedLoad[] = [];
@@ -172,6 +177,16 @@ export class ImageTextureStore {
 		return (
 			(this.loadQueue.length > 0 || this.activeLoads > 0) &&
 			performance.now() < this.loadsHeldUntil + MAX_LOAD_WAIT_MS
+		);
+	}
+
+	/** Whether an image a canvas drew without is still to come: its load is
+	 *  queued or running, or the canvases have yet to hear that it landed. */
+	public get hasLoadsInFlight(): boolean {
+		return (
+			this.notifyTimer !== null ||
+			this.isNotifyQueued ||
+			this.pendingLoads.values().some((pending) => pending.isAwaited)
 		);
 	}
 
@@ -338,7 +353,10 @@ export class ImageTextureStore {
 		const pending = this.pendingLoads.get(pendingKey);
 		if (pending) {
 			pending.holders.add(canvasId);
-			if (isUrgent) this.promote(pendingKey);
+			if (isUrgent) {
+				pending.isAwaited = true;
+				this.promote(pendingKey);
+			}
 			return pending.promise;
 		}
 
@@ -384,7 +402,11 @@ export class ImageTextureStore {
 		});
 		// The next load starts once this one is counted against the budget.
 		void promise.finally(() => this.pumpLoads());
-		this.pendingLoads.set(pendingKey, { promise, holders });
+		this.pendingLoads.set(pendingKey, {
+			promise,
+			holders,
+			isAwaited: isUrgent,
+		});
 		this.pumpLoads();
 		return promise;
 	}

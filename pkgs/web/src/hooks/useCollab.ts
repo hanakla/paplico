@@ -12,6 +12,7 @@ import {
 	PartyKitCollaboration,
 } from "@paplico/core/collaboration";
 import { LATEST_SCHEMA_VERSION } from "@paplico/core/io";
+import { delay } from "es-toolkit";
 import { proxy, useSnapshot } from "valtio";
 import type * as Y from "yjs";
 import { ConfirmDialog } from "@/components/AlertDialog";
@@ -77,6 +78,13 @@ export function getEncryptedRoomCredentials(): {
 	return encryptedRoomCredentials;
 }
 
+/**
+ * How long the loading dialog may wait for a joined document to be drawn. A
+ * window that draws no frames, as a hidden one does, would otherwise keep it
+ * up for good.
+ */
+const RENDER_WAIT_LIMIT_MS = 15_000;
+
 const collabState = proxy<CollabState>({
 	connectedRoomId: null,
 	isRoomOwner: false,
@@ -100,10 +108,32 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 		(collab: ICollaboration, encrypted: boolean) => {
 			let hasSynced = false;
 
-			// The room's document is only shown once it is at this build's schema.
+			// The room's document is only shown once it is at this build's schema,
+			// and the wait lasts until it is drawn: a large one takes a while to
+			// reach the screen, and an empty canvas meanwhile reads as nothing sent.
 			const offReady = paplicoRef.current?.on("collaborationReady", () => {
-				collabState.isSyncing = false;
 				offReady?.();
+				const paplico = paplicoRef.current;
+				if (!paplico) {
+					collabState.isSyncing = false;
+					return;
+				}
+
+				void Promise.race([
+					paplico.whenDocumentDrawn(),
+					delay(RENDER_WAIT_LIMIT_MS),
+				])
+					.catch((error) => {
+						console.error(
+							"Failed to wait for the joined document to be drawn:",
+							error,
+						);
+					})
+					.then(() => {
+						// A join made while this one waited owns the dialog now.
+						if (paplico.getCollaboration() !== collab) return;
+						collabState.isSyncing = false;
+					});
 			});
 
 			collab.on("synced", (isSynced) => {

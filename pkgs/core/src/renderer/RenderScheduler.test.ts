@@ -582,6 +582,120 @@ describe("RenderScheduler", () => {
 			expect(onIdle).not.toHaveBeenCalled();
 		});
 	});
+
+	describe("waiting until nothing is left to draw", () => {
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("should resolve at once when nothing is waiting to be drawn", async () => {
+			const scheduler = new RenderScheduler(vi.fn());
+
+			await expect(scheduler.whenDrawn()).resolves.toBeUndefined();
+		});
+
+		it("should resolve after the frame that draws the pending change", async () => {
+			const scheduler = new RenderScheduler(vi.fn());
+			const drawn = vi.fn();
+			scheduler.markDirty("document");
+
+			void scheduler.whenDrawn().then(drawn);
+			await Promise.resolve();
+			expect(drawn).not.toHaveBeenCalled();
+
+			flushFrame();
+			await Promise.resolve();
+			expect(drawn).toHaveBeenCalledOnce();
+		});
+
+		it("should keep waiting while a resource the frame drew without is on its way", async () => {
+			let loading = true;
+			const scheduler = schedulerLoading(() => loading);
+			const drawn = vi.fn();
+			scheduler.markDirty("document");
+			void scheduler.whenDrawn().then(drawn);
+
+			flushFrame();
+			vi.advanceTimersByTime(1000);
+			await Promise.resolve();
+			expect(drawn).not.toHaveBeenCalled();
+
+			loading = false;
+			scheduler.markDirty("render");
+			flushFrame();
+			await Promise.resolve();
+			expect(drawn).toHaveBeenCalledOnce();
+		});
+
+		it("should resolve when the resource stops loading without asking for a frame", async () => {
+			let loading = true;
+			const scheduler = schedulerLoading(() => loading);
+			const drawn = vi.fn();
+			scheduler.markDirty("document");
+			void scheduler.whenDrawn().then(drawn);
+			flushFrame();
+
+			loading = false;
+			vi.advanceTimersByTime(100);
+			await Promise.resolve();
+
+			expect(drawn).toHaveBeenCalledOnce();
+		});
+
+		it("should keep waiting while a re-render is on hold", async () => {
+			let onHold = true;
+			const scheduler = new RenderScheduler(
+				vi.fn(),
+				undefined,
+				undefined,
+				() => onHold,
+			);
+			const drawn = vi.fn();
+			scheduler.markDirty("render");
+			void scheduler.whenDrawn().then(drawn);
+
+			flushFrame();
+			vi.advanceTimersByTime(100);
+			await Promise.resolve();
+			expect(drawn).not.toHaveBeenCalled();
+
+			onHold = false;
+			scheduler.resumeDocumentRender();
+			flushFrame();
+			await Promise.resolve();
+			expect(drawn).toHaveBeenCalledOnce();
+		});
+
+		it("should keep waiting for the frame that follows a gesture", async () => {
+			const scheduler = new RenderScheduler(vi.fn());
+			const drawn = vi.fn();
+			scheduler.markDirty("viewport");
+			void scheduler.whenDrawn().then(drawn);
+
+			flushFrame();
+			await Promise.resolve();
+			expect(drawn).not.toHaveBeenCalled();
+
+			vi.advanceTimersByTime(1000);
+			flushFrame();
+			await Promise.resolve();
+			expect(drawn).toHaveBeenCalledOnce();
+		});
+
+		it("should resolve when the scheduler is destroyed", async () => {
+			const scheduler = new RenderScheduler(vi.fn());
+			scheduler.markDirty("document");
+			const drawn = scheduler.whenDrawn();
+
+			scheduler.destroy();
+
+			await expect(drawn).resolves.toBeUndefined();
+		});
+	});
 });
 
 // Helpers
@@ -600,4 +714,15 @@ function lastCall(callback: ReturnType<typeof vi.fn>): unknown[] {
 	const call = callback.mock.calls.at(-1);
 	if (!call) throw new Error("Expected the render callback to have fired");
 	return call;
+}
+
+function schedulerLoading(isLoadingResources: () => boolean): RenderScheduler {
+	return new RenderScheduler(
+		vi.fn(),
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		isLoadingResources,
+	);
 }

@@ -1151,6 +1151,23 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.valtioUnsubscribes = [];
 	}
 
+	/**
+	 * Resolves once what the document holds so far is on screen: every canvas
+	 * has drawn it with the images, text and brush textures it needs, and the
+	 * GPU has finished.
+	 */
+	public async whenDocumentDrawn(): Promise<void> {
+		// Changes reach the renderer's dirty tracking on a microtask, so the
+		// frame they ask for does not exist yet when this is called.
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		await Promise.all(
+			[...this.canvasTargets.values()].map((entry) =>
+				entry.scheduler.whenDrawn(),
+			),
+		);
+		await this.renderer.getDevice()?.queue.onSubmittedWorkDone();
+	}
+
 	private markDirty(reason: DirtyReason): void {
 		for (const entry of this.canvasTargets.values()) {
 			entry.scheduler.markDirty(reason);
@@ -1548,6 +1565,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			() => this.renderer.trimIdle(1),
 			() => this.renderer.isDocumentRenderOnHold,
 			() => this.renderer.isAwaitingImages,
+			() => this.renderer.isLoadingResources,
 		);
 
 		const ui = new PaplicoUI(canvas, {

@@ -32,7 +32,7 @@ export type DirtyReason =
 
 /** How long after the last viewport change a gesture counts as over. */
 const SETTLE_DELAY_MS = 100;
-/** How often a gesture's end re-checks the resources it waits for. */
+/** How often a wait on resources re-checks whether they arrived. */
 const RESOURCE_POLL_MS = 16;
 /** A frame this long holds back the input events behind it. */
 const LONG_FRAME_MS = 50;
@@ -103,6 +103,11 @@ export class RenderScheduler {
 	 *  arrive. */
 	private isAwaitingResources: () => boolean;
 	private idleTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Whether a resource a frame drew without is still on its way, with no
+	 *  limit on how long. */
+	private isLoadingResources: () => boolean;
+	private drawWaiters: Array<() => void> = [];
+	private drawWaitTimer: ReturnType<typeof setTimeout> | null = null;
 
 	public constructor(
 		renderCallback: (
@@ -113,12 +118,14 @@ export class RenderScheduler {
 		onIdle: () => void = () => {},
 		isDocumentRenderOnHold: () => boolean = () => false,
 		isAwaitingResources: () => boolean = () => false,
+		isLoadingResources: () => boolean = () => false,
 	) {
 		this.renderCallback = renderCallback;
 		this.hasVolatileContent = hasVolatileContent;
 		this.onIdle = onIdle;
 		this.isDocumentRenderOnHold = isDocumentRenderOnHold;
 		this.isAwaitingResources = isAwaitingResources;
+		this.isLoadingResources = isLoadingResources;
 	}
 
 	/** Schedule the re-render that waited while document renders were on hold. */
@@ -160,6 +167,20 @@ export class RenderScheduler {
 		}
 
 		this.scheduleFrame();
+	}
+
+	/**
+	 * Resolves once nothing is left to draw: every change marked dirty so far
+	 * is on the canvas, no re-render waits for a gesture to end or a hold to
+	 * lift, and no resource a frame drew without is still on its way.
+	 */
+	public whenDrawn(): Promise<void> {
+		if (this.isDestroyed || this.isDrawn()) return Promise.resolve();
+
+		return new Promise((resolve) => {
+			this.drawWaiters.push(resolve);
+			this.checkDrawWaiters();
+		});
 	}
 
 	/**
@@ -208,6 +229,7 @@ export class RenderScheduler {
 	 */
 	public destroy(): void {
 		this.isDestroyed = true;
+		this.checkDrawWaiters();
 
 		if (this.pendingFrame != null) {
 			cancelAnimationFrame(this.pendingFrame);
@@ -285,7 +307,40 @@ export class RenderScheduler {
 				}
 				this.restartIdleTimer();
 			}
+			this.checkDrawWaiters();
 		});
+	}
+
+	private isDrawn(): boolean {
+		return (
+			!this.dirty &&
+			this.pendingFrame === null &&
+			this.settleTimer === null &&
+			!this.renderAwaitsSettle &&
+			this.heldReasons.size === 0 &&
+			!this.isLoadingResources()
+		);
+	}
+
+	/**
+	 * Resolve the waiters once nothing is left to draw, and look again shortly
+	 * until then. A resource that fails to load asks for no frame, so the end
+	 * of a frame alone would leave them waiting.
+	 */
+	private checkDrawWaiters(): void {
+		if (this.drawWaiters.length === 0) return;
+
+		if (this.isDestroyed || this.isDrawn()) {
+			if (this.drawWaitTimer != null) clearTimeout(this.drawWaitTimer);
+			this.drawWaitTimer = null;
+			for (const resolve of this.drawWaiters.splice(0)) resolve();
+			return;
+		}
+
+		this.drawWaitTimer ??= setTimeout(() => {
+			this.drawWaitTimer = null;
+			this.checkDrawWaiters();
+		}, RESOURCE_POLL_MS);
 	}
 
 	private restartIdleTimer(): void {

@@ -44,8 +44,10 @@ For end-to-end encryption, make a key with `generateRoomKey()` and encode it wit
 The engine emits events on itself, and the transport emits its own:
 
 ```ts
-paplico.on("collaborationReady", () => {
-	// The room has synced and its document is on the canvas
+paplico.on("collaborationReady", async () => {
+	// The room has synced and the engine holds its document
+	await paplico.whenDocumentDrawn();
+	// The document is on the canvas
 });
 
 collab.on("status", (status) => setOnline(status === "connected"));

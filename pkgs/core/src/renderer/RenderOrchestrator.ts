@@ -823,6 +823,16 @@ export class RenderOrchestrator {
 		return this.imageTextures?.hasLoadsToAwait ?? false;
 	}
 
+	/** Whether an image, a text layout or a brush texture some canvas drew
+	 *  without is still on its way. */
+	public get isLoadingResources(): boolean {
+		if (this.imageTextures?.hasLoadsInFlight) return true;
+		for (const td of this.targets.values()) {
+			if (td.canvasLayer.isLoadingResources) return true;
+		}
+		return false;
+	}
+
 	/**
 	 * Whether document re-renders with nothing new of the user's to show have
 	 * to wait. Each one destroys the textures of the one before, and on WebKit
