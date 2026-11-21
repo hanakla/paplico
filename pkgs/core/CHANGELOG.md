@@ -7,11 +7,18 @@
 - **Renderer**
   - `Paplico.whenDocumentDrawn()` resolves once the document is drawn on every canvas with the images, text and brush textures it needs, and the GPU has finished.
 
+### Changed
+
+- **Breaking API changes**
+  - `YjsProvider.groupElements` accepts a layer or group ID as its first argument. `groupElementsInGroup` is removed. Use `groupElements` instead.
+
 ### Fixed
 
 - **Collaboration**
   - Fix a desktop app failing to reach the collaboration server, because it asked for an unencrypted `ws://` connection.
   - Fix a host being disconnected when a guest joins a device-to-device session with a large document. The relay refuses messages above 32 MiB, so the document is now sent in pieces of 8 MiB. A guest on an older version cannot read these messages.
+- **Document**
+  - Fix grouping selected objects doing nothing while editing a mask.
 - **Text**
   - Fix Enter leaving the text after the caret on the same line, or moving it out of order, in a line made of differently styled parts or joined with Backspace.
   - Fix Enter dropping the per-character adjustments of the text it moves to the new line.
@@ -20,6 +27,8 @@
   - Fix kerning, character size and alignment changes made while editing not being saved until the edit ends. Undo takes back each change and keeps the caret in place.
   - Fix the selected text staying in place until an IME composition is confirmed.
   - Fix a new text ignoring the font, size, alignment and writing mode chosen after the text tool was picked.
+- **Elements**
+  - Fix ungroup doing nothing on a group inside the group being edited.
 
 ## [0.12.0] - 2026-11-18
 

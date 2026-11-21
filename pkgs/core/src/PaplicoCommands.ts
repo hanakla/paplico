@@ -1397,8 +1397,9 @@ export class PaplicoCommands {
 
 	public ungroupElements(groupId: string): void {
 		if (this.cannotMutate() || this.isElementLocked(groupId)) return;
-		const layerId = this.ctx.store.currentLayerId;
-		if (!layerId) return;
+		const parentId =
+			this.ctx.store.editingScopeStack.at(-1) ?? this.ctx.store.currentLayerId;
+		if (!parentId) return;
 
 		const objects = this.ctx.store.document.objects;
 		const group = objects[groupId];
@@ -1424,7 +1425,7 @@ export class PaplicoCommands {
 					this.getMutationOrigin(),
 				);
 			}
-			this.ctx.yjsProvider.ungroupElements(layerId, groupId);
+			this.ctx.yjsProvider.ungroupElements(parentId, groupId);
 		});
 	}
 

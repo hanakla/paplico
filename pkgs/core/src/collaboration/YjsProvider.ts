@@ -1355,44 +1355,44 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	}
 
 	/**
-	 * Ungroup a group - restore children to layer elementIds
-	 * Normalized: children are moved back from group.childIds to layer.elementIds
+	 * Ungroup a group in a layer or parent group.
+	 * Normalized: children replace the group in its parent's elementIds or childIds.
 	 */
-	public ungroupElements(layerId: string, groupId: string): void {
+	public ungroupElements(parentId: string, groupId: string): void {
 		this.ydoc.transact(() => {
-			// Get group from yObjects
 			const yGroup = this.yObjects.get(groupId);
 			if (!yGroup) return;
 
 			const childIdsJson = yGroup.get("childIds") as string | undefined;
 			const childIds: string[] = childIdsJson ? JSON.parse(childIdsJson) : [];
 
-			// Find groupId's index in layer elementIds
-			const yLayer = this.findYLayer(layerId);
-			if (!yLayer) return;
+			const yLayer = this.findYLayer(parentId);
+			if (yLayer) {
+				const yElementIds = this.getYElementIds(yLayer);
+				if (!yElementIds) return;
 
-			const yElementIds = this.getYElementIds(yLayer);
-			if (!yElementIds) return;
+				const groupIndex = yElementIds.toArray().indexOf(groupId);
+				if (groupIndex === -1) return;
 
-			let groupIndex = -1;
-			for (let i = 0; i < yElementIds.length; i++) {
-				if (yElementIds.get(i) === groupId) {
-					groupIndex = i;
-					break;
+				yElementIds.delete(groupIndex, 1);
+				if (childIds.length > 0) {
+					yElementIds.insert(groupIndex, childIds);
 				}
+			} else {
+				const yParent = this.yObjects.get(parentId);
+				const parentChildIdsJson = yParent?.get("childIds") as
+					| string
+					| undefined;
+				if (!yParent || !parentChildIdsJson) return;
+
+				const parentChildIds: string[] = JSON.parse(parentChildIdsJson);
+				const groupIndex = parentChildIds.indexOf(groupId);
+				if (groupIndex === -1) return;
+
+				parentChildIds.splice(groupIndex, 1, ...childIds);
+				this.setChildIds(yParent, parentChildIds);
 			}
 
-			if (groupIndex === -1) return;
-
-			// Remove groupId from elementIds
-			yElementIds.delete(groupIndex, 1);
-
-			// Insert all childIds at that position
-			if (childIds.length > 0) {
-				yElementIds.insert(groupIndex, childIds);
-			}
-
-			// Delete group from yObjects
 			this.yObjects.delete(groupId);
 		});
 	}

@@ -3291,6 +3291,24 @@ describe("PaplicoCommands", () => {
 			expectSameOutlines([drawnOutline(store, "a")], [before]);
 		});
 
+		it("ungroupElements should put the children of a nested group into the group being edited", () => {
+			const { provider, store, commands, sync } = createProviderCommands();
+			const innerId = addTransformedGroup(provider, sync, ["a", "b"]);
+			provider.addElement("layer", createPath("c"));
+			sync();
+			const outerId = provider.groupElements("layer", [innerId, "c"]);
+			if (!outerId) throw new Error("group should be created");
+			sync();
+			store.editingScopeStack = [outerId];
+
+			commands.ungroupElements(innerId);
+			sync();
+
+			const outer = store.document.objects[outerId];
+			expect(outer.type === "group" && outer.childIds).toEqual(["a", "b", "c"]);
+			expect(store.document.objects[innerId]).toBeUndefined();
+		});
+
 		it("extractChildFromGroup should keep the child drawn where it was, out of nested groups", () => {
 			const fixture = createProviderCommands({
 				getAncestorTransform: (id: string) =>
