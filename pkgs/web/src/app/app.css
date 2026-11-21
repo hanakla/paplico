@@ -256,7 +256,7 @@
 		--warn: var(--color-yellow-500);
 		--warn-hover: var(--color-yellow-600);
 		--warn-active: var(--color-yellow-700);
-		--warn-foreground: var(--color-white);
+		--warn-foreground: var(--color-black);
 
 		--virtual-shiftkey: var(--color-rose-50);
 		--virtual-shiftkey-hover: var(--color-rose-100);
@@ -292,7 +292,7 @@
 		--warn: var(--color-yellow-400);
 		--warn-hover: var(--color-yellow-500);
 		--warn-active: var(--color-yellow-600);
-		--warn-foreground: var(--color-yellow-700);
+		--warn-foreground: var(--color-black);
 
 		--virtual-shiftkey: var(--color-lime-50);
 		--virtual-shiftkey-hover: var(--color-lime-100);
@@ -329,7 +329,7 @@
 		--warn: var(--color-yellow-400);
 		--warn-hover: var(--color-yellow-500);
 		--warn-active: var(--color-yellow-600);
-		--warn-foreground: var(--color-yellow-700);
+		--warn-foreground: var(--color-black);
 
 		--virtual-shiftkey: var(--color-violet-50);
 		--virtual-shiftkey-hover: var(--color-violet-100);
@@ -403,7 +403,7 @@
 		--warn: var(--color-yellow-400);
 		--warn-hover: var(--color-yellow-500);
 		--warn-active: var(--color-yellow-600);
-		--warn-foreground: var(--color-yellow-700);
+		--warn-foreground: var(--color-black);
 
 		--virtual-shiftkey: var(--color-white);
 		--virtual-shiftkey-hover: var(--color-gray-100);

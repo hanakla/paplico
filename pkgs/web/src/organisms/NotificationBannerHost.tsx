@@ -40,15 +40,15 @@ export function NotificationBannerHost() {
 				<div
 					key={banner.key}
 					role="alert"
-					className="pointer-events-auto relative flex items-start gap-3 rounded-xl border border-warn bg-warn/60 px-4 py-3 pr-11 shadow-lg backdrop-liquid"
+					className="pointer-events-auto relative flex items-start gap-3 rounded-xl border border-warn bg-warn/60 px-4 py-3 pr-11 text-warn-foreground shadow-lg backdrop-liquid [--backdrop-brightness:1]"
 				>
-					<TriangleAlert size={16} className="mt-0.5 shrink-0 text-warn" />
+					<TriangleAlert size={16} className="mt-0.5 shrink-0" />
 					<div className="flex flex-col">
-						<div className="text-sm leading-5 font-medium text-warn-foreground">
+						<div className="text-sm leading-5 font-medium">
 							{t(banner.titleKey)}
 						</div>
 						{banner.descriptionKey && (
-							<div className="text-xs leading-5 text-muted-foreground">
+							<div className="text-xs leading-5 opacity-80">
 								{t(banner.descriptionKey)}
 							</div>
 						)}
@@ -57,7 +57,7 @@ export function NotificationBannerHost() {
 								type="button"
 								data-banner-key={banner.key}
 								onClick={handleActionClick}
-								className="mt-1 self-start text-xs font-medium text-accent hover:underline"
+								className="mt-1 self-start text-xs font-medium underline"
 							>
 								{t(banner.action.labelKey)}
 							</button>
