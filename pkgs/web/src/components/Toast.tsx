@@ -77,7 +77,7 @@ function ToastRoot({
 				"data-expanded:data-ending-style:data-[swipe-direction=right]:translate-x-[calc(var(--toast-swipe-movement-x)+150%)] data-expanded:data-ending-style:data-[swipe-direction=right]:translate-y-(--offset-y)",
 				"data-ending-style:data-[swipe-direction=up]:translate-y-[calc(var(--toast-swipe-movement-y)-150%)]",
 				"data-expanded:data-ending-style:data-[swipe-direction=up]:translate-y-[calc(var(--toast-swipe-movement-y)-150%)]",
-				"data-[type=warning]:border-warn data-[type=warning]:bg-warn/60",
+				"data-[type=warning]:border-warn data-[type=warning]:bg-warn/60 data-[type=warning]:[--backdrop-brightness:1]",
 				"data-[type=info]:border-accent data-[type=info]:bg-accent/60",
 				"data-[type=error]:border-danger data-[type=error]:bg-danger/60",
 				className,
