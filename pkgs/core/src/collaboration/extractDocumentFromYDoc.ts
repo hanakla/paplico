@@ -102,6 +102,7 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 				name: yMap.get("name") as string | undefined,
 				collapsed: yMap.get("collapsed") as boolean | undefined,
 				clipPathId: yMap.get("clipPathId") as string | null | undefined,
+				isolated: yMap.get("isolated") as boolean | undefined,
 			} satisfies Group;
 
 		case "image":

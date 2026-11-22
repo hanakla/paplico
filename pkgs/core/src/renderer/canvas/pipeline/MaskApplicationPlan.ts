@@ -26,7 +26,12 @@ interface MaskApplicationFacts {
 	inlineContainer?: boolean;
 }
 
-type GroupIsolationReason = "mask" | "clip" | "opacity" | "filter";
+type GroupIsolationReason =
+	| "mask"
+	| "clip"
+	| "opacity"
+	| "filter"
+	| "isolation";
 
 export type GroupCompositionPlan =
 	| { kind: "passthrough" }
@@ -41,6 +46,8 @@ export interface GroupCompositionFacts {
 	hasOwnClip: boolean;
 	hasOpacity: boolean;
 	hasFilter: boolean;
+	/** The group keeps its children's blend modes from what is under it. */
+	isIsolated: boolean;
 	dependsOnBackdrop: boolean;
 }
 
@@ -83,6 +90,7 @@ export function planGroupComposition(
 	if (facts.hasOwnClip) reasons.push("clip");
 	if (facts.hasOpacity) reasons.push("opacity");
 	if (facts.hasFilter) reasons.push("filter");
+	if (facts.isIsolated) reasons.push("isolation");
 
 	if (facts.dependsOnBackdrop) {
 		return { kind: "backdrop-dependent", reasons };

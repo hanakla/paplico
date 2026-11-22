@@ -1547,6 +1547,7 @@ export class CanvasLayer {
 					hasOwnClip: element.clipPathId != null,
 					hasOpacity: (element.opacity ?? 1) !== 1,
 					hasFilter: filterPlanIds.has(element.id),
+					isIsolated: element.isolated === true,
 					dependsOnBackdrop: this.backdropDrivers.some((driver) =>
 						driver.hasInlineComposite(element),
 					),
@@ -8297,11 +8298,13 @@ export class CanvasLayer {
 				if (
 					groupCompositionPlan?.kind === "isolated" &&
 					groupCompositionPlan.reasons.every(
-						(reason) => reason === "opacity",
+						(reason) => reason === "opacity" || reason === "isolation",
 					) &&
 					compositeContext
 				) {
 					activePass.end();
+					// Opacity alone does not isolate the group: its children
+					// blend against what the target holds beneath them.
 					const isolated = this.offscreen.renderGroupToTexture(
 						this.activeEncoder!,
 						element,
@@ -8316,6 +8319,7 @@ export class CanvasLayer {
 							parent: compositeContext.backdrop,
 							alpha: effectiveAlpha,
 						},
+						element.isolated ? undefined : compositeContext,
 					);
 					activePass = compositeContext.restartPass();
 					if (isolated) {
@@ -9906,6 +9910,7 @@ function buildMaskAssignment(
 			hasOwnClip: clipGroupIds.has(element.id),
 			hasOpacity: (element.opacity ?? 1) !== 1,
 			hasFilter: filterPlanIds.has(element.id),
+			isIsolated: element.isolated === true,
 			dependsOnBackdrop: dependsOnBackdrop(element),
 		});
 
@@ -10116,7 +10121,7 @@ function groupHasOwnMask(group: Group): boolean {
 }
 
 /** The groups that composite as one layer for a reason the document alone
- *  decides: their own mask, clip path or opacity. */
+ *  decides: their own mask, clip path, opacity or isolation. */
 function collectIsolatingGroups(
 	elementsMap: Map<string, AnyArtObject>,
 ): Group[] {
@@ -10125,7 +10130,8 @@ function collectIsolatingGroups(
 			isGroup(element) &&
 			(groupHasOwnMask(element) ||
 				element.clipPathId != null ||
-				(element.opacity ?? 1) !== 1),
+				(element.opacity ?? 1) !== 1 ||
+				element.isolated === true),
 	);
 }
 

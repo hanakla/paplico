@@ -1483,6 +1483,10 @@ export class OffscreenPresenter {
 		/** Where the bake is composited, when that target's picture is known —
 		 *  backdrop-filter children sample it. */
 		backdrop?: OffscreenBackdrop,
+		/** The target the bake is composited into. With it the children blend
+		 *  against what that target holds beneath them; without it they see
+		 *  only each other. */
+		parentContext?: CompositeRenderContext,
 	): CoveredSurface<RasterizedRenderSurface> | null {
 		if (
 			Math.ceil(textureBounds.width) <= 0 ||
@@ -1772,6 +1776,12 @@ export class OffscreenPresenter {
 		this.renderColorBakeBatch(encoder, colorBakeBatch, childFilteredTextures);
 		this.densityCeiling = savedCeiling;
 
+		// Read the parent's texel space before this pass pushes its own.
+		const parentFrame =
+			parentContext &&
+			scanBlendingFlags(childElements, elementsMap).hasBlendingElement
+				? this.deps.getRasterFrame()
+				: null;
 		const ctx = this.createOffscreenPass(
 			encoder,
 			"Group",
@@ -1787,23 +1797,38 @@ export class OffscreenPresenter {
 		const {
 			offscreenTexture,
 			entry,
-			passEncoder: offscreenPassEncoder,
 			savedViewportBounds,
 			effectiveZoom: groupEffectiveZoom,
 			blitUvRect: groupBlitUvRect,
 		} = ctx;
+		let offscreenPassEncoder = ctx.passEncoder;
 
+		// Only one pass can be open on the encoder: the bake pass yields
+		// while the parent's backdrop is projected into the bake's texel space.
+		let baseTexture: GPUTexture | undefined;
+		if (parentContext && parentFrame) {
+			offscreenPassEncoder.end();
+			baseTexture = this.projectParentBackdrop(
+				encoder,
+				parentContext,
+				parentFrame,
+				offscreenTexture,
+			);
+		}
 		const groupCompositeContext = this.buildOffscreenCompositeContext(
 			encoder,
 			offscreenTexture,
 			entry,
-			undefined,
+			baseTexture,
 			backdrop && {
 				composite: backdrop,
 				bounds: ctx.coverageBounds,
 				uvRect: groupBlitUvRect,
 			},
 		);
+		if (baseTexture) {
+			offscreenPassEncoder = groupCompositeContext.restartPass();
+		}
 
 		const { savedCaptureTexture, offscreenCaptureTexture } =
 			this.swapCaptureTexture(offscreenTexture.width, offscreenTexture.height);
@@ -1839,6 +1864,9 @@ export class OffscreenPresenter {
 			}
 		}
 
+		// The base is read until the bake's last composite; releasing it earlier
+		// would let a nested bake's projection acquire it as its own target.
+		this.deferDestroy(baseTexture);
 		this.deps.compositeState.captureTexture = savedCaptureTexture;
 		this.deferDestroy(offscreenCaptureTexture);
 
@@ -1900,7 +1928,7 @@ export class OffscreenPresenter {
 			skipElementIds,
 			localBoundsCache,
 			outerMasks,
-			compositeContext,
+			group.isolated ? undefined : compositeContext,
 			compositeContext.backdrop && {
 				parent: compositeContext.backdrop,
 				alpha: alphaMultiplier,

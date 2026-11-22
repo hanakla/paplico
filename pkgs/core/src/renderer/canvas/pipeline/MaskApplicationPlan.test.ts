@@ -29,6 +29,7 @@ describe("planGroupComposition", () => {
 		["clip", { hasOwnClip: true }],
 		["opacity", { hasOpacity: true }],
 		["filter", { hasFilter: true }],
+		["isolation", { isIsolated: true }],
 	] as const)("isolates a Group with its own %s", (_, effect) => {
 		expect(planGroupComposition(groupFacts(effect))).toMatchObject({
 			kind: "isolated",
@@ -239,6 +240,7 @@ function groupFacts(
 		hasOwnClip: false,
 		hasOpacity: false,
 		hasFilter: false,
+		isIsolated: false,
 		dependsOnBackdrop: false,
 		...overrides,
 	};

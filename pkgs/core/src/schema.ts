@@ -1107,6 +1107,12 @@ export interface Group extends ArtObject {
 	collapsed?: boolean;
 	/** ID of the element used as the clipping mask (must be one of childIds) */
 	clipPathId?: string | null;
+	/**
+	 * When true, the blend modes of the children see only the children drawn
+	 * before them in the group, never what is under the group.
+	 * Default: false (undefined = not isolated)
+	 */
+	isolated?: boolean;
 }
 
 // --- Boolean Operation Types ---

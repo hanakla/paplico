@@ -39,8 +39,10 @@ const OVER_NOTHING: [number, number] = [25, 0];
 const BASE_ONLY: [number, number] = [-75, 0];
 
 /**
- * A group drawn from a bake is one isolated layer: its children blend against
- * what the group itself holds, and the result goes over the document.
+ * A group drawn from a bake for a filter is one isolated layer: its children
+ * blend against what the group itself holds, and the result goes over the
+ * document. A group baked for its opacity alone lets them blend against the
+ * document too, unless the group is isolated.
  *
  *   x: -100 ..  0    base
  *   x:  -50 .. 50    multiply tint (y -30..30)
@@ -121,6 +123,35 @@ describe("blend modes inside a baked group", () => {
 				mix(BACKDROP, multiply(BASE, TINT), 0.5),
 			);
 		});
+
+		it("should blend a child against the document under the group", async () => {
+			const pixels = await render(bakedDocument({ group: { opacity: 0.5 } }));
+
+			expectColor(
+				colorAtWorld(pixels, ...OVER_NOTHING),
+				mix(BACKDROP, multiply(BACKDROP, TINT), 0.5),
+			);
+		});
+
+		it("should keep a child of an isolated group from the document", async () => {
+			const pixels = await render(
+				bakedDocument({ group: { opacity: 0.5, isolated: true } }),
+			);
+
+			expectColor(
+				colorAtWorld(pixels, ...OVER_NOTHING),
+				mix(BACKDROP, TINT, 0.5),
+			);
+		});
+	});
+
+	describe("in an isolated group", () => {
+		it("should keep a child from the document under the group", async () => {
+			const pixels = await render(bakedDocument({ group: { isolated: true } }));
+
+			expectColor(colorAtWorld(pixels, ...OVER_BASE), multiply(BASE, TINT));
+			expectColor(colorAtWorld(pixels, ...OVER_NOTHING), TINT);
+		});
 	});
 });
 
@@ -151,7 +182,7 @@ function bakedDocument({
 	tintBlendMode = "multiply",
 	nestTint = false,
 }: {
-	group?: { filters?: Filter[]; opacity?: number };
+	group?: { filters?: Filter[]; opacity?: number; isolated?: boolean };
 	/** Replaces the base's single fill. */
 	baseFills?: FillAppearance[];
 	tintFilters?: Filter[];
@@ -171,6 +202,7 @@ function bakedDocument({
 	const group: Group = {
 		...mockGroup("group-1", [base.id, nestTint ? nested.id : tint.id]),
 		opacity: groupOverrides.opacity ?? 1,
+		isolated: groupOverrides.isolated,
 		filters: [
 			createDefaultContentAppearance(),
 			...(groupOverrides.filters ?? []),

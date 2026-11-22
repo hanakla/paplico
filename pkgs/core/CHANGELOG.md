@@ -8,6 +8,8 @@
   - Double-clicking a 3D scene with the select tool opens a scene editor that draws the element's view on past its frame, over the whole canvas, so the scene first appears where the frame shows it. The editor's camera starts as the element's camera and never changes it, while node edits are written to the scene as before.
   - 3D scene tool: `Scene3DTool.frameSelectedNode()` and `frameScene()` aim the camera at the selected node or the whole scene and move it to the distance where they fit.
   - 3D scene tool: holding Shift during an orbit in the scene editor snaps the view to the nearest of the front, back, side, top and bottom views.
+- **Elements**
+  - `Group.isolated` keeps the blend modes of a group's children from what is under the group.
 - **Renderer**
   - `Paplico.whenDocumentDrawn()` resolves once the document is drawn on every canvas with the images, text and brush textures it needs, and the GPU has finished.
 - **Text**
@@ -23,6 +25,8 @@
   - 3D scene tool: an orbit turns around the selected node instead of the camera's target.
   - Text tool touch type: dragging a corner handle stretches the selected characters' width and height apart with `CharOverride.scaleX` and `scaleY` instead of scaling their size. Shift+drag scales their size. `getCharTouchSelection()` and `setCharTouchValues()` read and write the two values.
   - 3D scene tool: a press on empty space deselects the node on release without a drag instead of on press.
+- **Elements**
+  - A group with an opacity of its own lets the blend modes of its children reach what is under the group instead of only what the group holds. Set `Group.isolated` to keep them inside the group.
 
 ### Fixed
 
@@ -42,6 +46,7 @@
   - Fix the selected text staying in place until an IME composition is confirmed.
   - Fix a new text ignoring the font, size, alignment and writing mode chosen after the text tool was picked.
 - **Elements**
+  - Fix a group's own fill and stroke following hidden children and the parts of clip groups their clip paths hide.
   - Fix ungroup doing nothing on a group inside the group being edited.
 
 ## [0.12.0] - 2026-11-18

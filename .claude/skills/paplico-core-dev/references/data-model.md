@@ -24,7 +24,7 @@ Every element extends `ArtObject`:
 ## Element types (AnyArtObject union)
 
 - **Path** — Bezier segments + width. Stroke and/or fill via Appearances
-- **Group** — `childIds: string[]` referencing other elements. Optional `clipPathId` for clipping mask
+- **Group** — `childIds: string[]` referencing other elements. Optional `clipPathId` for clipping mask. Optional `isolated` keeps the children's blend modes from what is under the group
 - **ImageObject** — `fileUid` referencing `Document.files[]`, position + dimensions in world space
 - **CompoundPath** — `sources: CompoundPathSource[]` with per-source `BooleanOperation`. Non-destructive boolean ops applied sequentially
 - **TextElement** — Rich text content with `TextContent` / `TextStyle` / `TextLayout`. Optional `axisBinding` for text-on-path

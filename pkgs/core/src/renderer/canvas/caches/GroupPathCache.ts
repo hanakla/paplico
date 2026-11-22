@@ -83,6 +83,7 @@ function buildChildFingerprints(
 			return {
 				id: child.id,
 				type: "path",
+				visible: child.visible,
 				segments: child.segments,
 				transform: getTransform(child),
 			};
@@ -97,6 +98,7 @@ function buildChildFingerprints(
 			return {
 				id: child.id,
 				type: "compound-path",
+				visible: child.visible,
 				sources: createCompoundPathFingerprint(child, pathMap),
 				transform: getTransform(child),
 			};
@@ -106,6 +108,8 @@ function buildChildFingerprints(
 			return {
 				id: child.id,
 				type: "group",
+				visible: child.visible,
+				clipPathId: child.clipPathId,
 				transform: getTransform(child),
 				children: buildChildFingerprints(child, elementsMap),
 			};

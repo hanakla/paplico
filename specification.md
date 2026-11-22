@@ -256,6 +256,7 @@ interface DefEntry {
 - `childIds`
 - `collapsed?`
 - `clipPathId?`：`childIds` の1つをクリップパスにする。
+- `isolated?`：`true` のとき、子のブレンドモードは、グループの中で先に描かれた子だけを下地にする。未指定のときは、グループの下にある絵も下地にする。
 
 **CompoundPath**
 

@@ -21,7 +21,8 @@ import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
  * as a single multi-subpath path in world space.
  * Each child is turned so its outer contour winds CCW, so that overlapping
  * children add (rather than cancel) under nonzero winding.
- * CompoundPaths are resolved via cache. ImageObject/TextElement are skipped.
+ * CompoundPaths are resolved via cache. ImageObject/TextElement and hidden
+ * children are skipped. A nested clip group adds the shape of its clip path.
  */
 export function collectGroupSegments(
 	group: Group,
@@ -46,7 +47,7 @@ function collectRecursive(
 		if (childId === group.clipPathId) continue;
 
 		const child = elementsMap.get(childId);
-		if (!child) continue;
+		if (!child || child.visible === false) continue;
 
 		if (isPath(child)) {
 			const worldPath = toWorldPath(child, matrix);
@@ -71,12 +72,25 @@ function collectRecursive(
 			appendNormalized(segments, result);
 		} else if (isGroup(child)) {
 			const childrenMatrix = placeElement(matrix ?? null, child);
+			const childMatrix = isIdentityTransform(childrenMatrix)
+				? undefined
+				: childrenMatrix;
+			const clipPath =
+				child.clipPathId == null
+					? undefined
+					: elementsMap.get(child.clipPathId);
+			// The clip path stands in for what it shows. Cutting the children by
+			// it would cost a boolean operation over every curve they hold.
+			if (clipPath && isPath(clipPath)) {
+				appendNormalized(toWorldPath(clipPath, childMatrix).segments, result);
+				continue;
+			}
 			collectRecursive(
 				child,
 				elementsMap,
 				compoundPathCache,
 				result,
-				isIdentityTransform(childrenMatrix) ? undefined : childrenMatrix,
+				childMatrix,
 			);
 		}
 		// ImageObject, TextElement — skip

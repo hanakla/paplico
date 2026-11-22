@@ -84,6 +84,7 @@ export const SCALAR_FIELDS = new Set([
 	"operation",
 	"collapsed",
 	"clipPathId",
+	"isolated",
 	"pathStart",
 	"pathEnd",
 	"strokeWidthsBaked",
@@ -3030,6 +3031,7 @@ export function objectToStoredFields(
 			if (element.collapsed !== undefined) fields.collapsed = element.collapsed;
 			if (element.clipPathId !== undefined)
 				fields.clipPathId = element.clipPathId;
+			if (element.isolated !== undefined) fields.isolated = element.isolated;
 			break;
 		case "image":
 			fields.fileUid = element.fileUid;

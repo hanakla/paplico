@@ -30,6 +30,33 @@ describe("GroupPathCache", () => {
 
 		expect(maxAnchorX(segments)).toBeCloseTo(150);
 	});
+
+	it("should follow a child being hidden", () => {
+		const cache = new GroupPathCache();
+		const compoundPathCache = new CompoundPathCache();
+		const group = mockGroup("group-1", ["path-1"]);
+		const path = mockPath("path-1");
+		path.segments = closedRectSegments(0, 0, 10, 10);
+		cache.resolve(
+			group,
+			new Map<string, AnyArtObject>([
+				[group.id, group],
+				[path.id, path],
+			]),
+			compoundPathCache,
+		);
+
+		const segments = cache.resolve(
+			group,
+			new Map<string, AnyArtObject>([
+				[group.id, group],
+				[path.id, { ...path, visible: false }],
+			]),
+			compoundPathCache,
+		);
+
+		expect(segments).toEqual([]);
+	});
 });
 
 function maxAnchorX(segments: CubicBezierSegment[]): number {

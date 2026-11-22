@@ -7,6 +7,7 @@ import type {
 	Group,
 	Path,
 } from "../../../schema";
+import { mockGroup, mockPath } from "../../../testUtils/mockElements";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
 import { computeSubPathSignedArea } from "../../../utils/geometry/measure/area";
 import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
@@ -36,7 +37,61 @@ describe("collectGroupSegments", () => {
 
 		expect(areas.map(Math.sign)).toEqual([1, -1, 1, -1]);
 	});
+
+	it("should leave out a hidden child", () => {
+		const hidden = rectPath("hidden", 0, 0, 10, 10);
+		hidden.visible = false;
+
+		const bounds = collectedBounds([hidden, rectPath("shown", 20, 0, 30, 10)]);
+
+		expect(bounds).toEqual({ minX: 20, maxX: 30 });
+	});
+
+	it("should take the shape of a nested clip group from its clip path", () => {
+		const clipPath = rectPath("clip", 0, 0, 10, 10);
+		const big = rectPath("big", -20, -20, 30, 30);
+		const nested = {
+			...mockGroup("nested", [clipPath.id, big.id]),
+			clipPathId: clipPath.id,
+		};
+
+		const bounds = collectedBounds([nested], [clipPath, big]);
+
+		expect(bounds).toEqual({ minX: 0, maxX: 10 });
+	});
 });
+
+/** The x range of what a group of `children` collects. */
+function collectedBounds(
+	children: AnyArtObject[],
+	nestedContent: AnyArtObject[] = [],
+): { minX: number; maxX: number } {
+	const group = mockGroup(
+		"group",
+		children.map((child) => child.id),
+	);
+	const segments = collectGroupSegments(
+		group,
+		new Map<string, AnyArtObject>(
+			[...children, ...nestedContent].map((el) => [el.id, el]),
+		),
+		new CompoundPathCache(),
+	);
+	const xs = segments.flatMap((seg) => [seg.start?.x ?? seg.end.x, seg.end.x]);
+	return { minX: Math.min(...xs), maxX: Math.max(...xs) };
+}
+
+function rectPath(
+	id: string,
+	minX: number,
+	minY: number,
+	maxX: number,
+	maxY: number,
+): Path {
+	const path = mockPath(id);
+	path.segments = closedRectSegments(minX, minY, maxX, maxY);
+	return path;
+}
 
 /** Signed areas of the subpaths a group of `children` collects, in order. */
 function collectedAreas(children: Path[]): number[] {
