@@ -144,6 +144,7 @@ export function createMockToolContext(
 		replacePathWithPaths: vi.fn(),
 		getPathById: vi.fn(() => null),
 		getAllEditablePaths: vi.fn(() => []),
+		isPointInsideAncestorClips: vi.fn(() => true),
 
 		artboardCreate: vi.fn(),
 		artboardSelect: vi.fn(),

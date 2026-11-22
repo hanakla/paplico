@@ -3033,6 +3033,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					this.rendererStore.document,
 					this.rendererStore.editingScopeStack.at(-1) ?? null,
 				),
+			isPointInsideAncestorClips: (elementId, x, y) =>
+				this.spatialIndex.isPointInsideAncestorClips(elementId, x, y),
 
 			artboardCreate: (artboard) => this.commands.addArtboard(artboard),
 			artboardSelect: (id) => this.selection.selectArtboard(id),

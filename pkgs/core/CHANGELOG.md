@@ -28,6 +28,8 @@
   - Fix a host being disconnected when a guest joins a device-to-device session with a large document. The relay refuses messages above 32 MiB, so the document is now sent in pieces of 8 MiB. A guest on an older version cannot read these messages.
 - **Document**
   - Fix grouping selected objects doing nothing while editing a mask.
+- **Tools**
+  - Path edit tool: fix a click selecting an anchor of an unselected path where a clip group hides it.
 - **Text**
   - Fix Enter leaving the text after the caret on the same line, or moving it out of order, in a line made of differently styled parts or joined with Backspace.
   - Fix Enter dropping the per-character adjustments of the text it moves to the new line.

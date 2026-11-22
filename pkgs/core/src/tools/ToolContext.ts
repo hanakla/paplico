@@ -270,6 +270,12 @@ export type ToolContextOptions = {
 		path: Path;
 		ancestorTransform: ElementTransform | null;
 	}>;
+	/** Whether a world point on an element is left visible by every ancestor clip group. */
+	isPointInsideAncestorClips: (
+		elementId: string,
+		x: number,
+		y: number,
+	) => boolean;
 	// artboard tool
 	artboardCreate: (artboard: Artboard) => void;
 	artboardSelect: (id: string | null) => void;

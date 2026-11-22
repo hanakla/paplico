@@ -2106,6 +2106,33 @@ describe("PathEditTool", () => {
 			expect(selectedCR.length).toBe(4);
 		});
 
+		it("should not select an anchor that a clip group hides", () => {
+			const line = makeStraightPath("line", [0, 100, 200]);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path: line, ancestorTransform: null },
+			]);
+			ctx.isPointInsideAncestorClips.mockReturnValue(false);
+
+			// Click the line's middle anchor (100,0)
+			tool.onPointerDown(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const selectedAnchors = getControlPoints(ctx, HANDLES_KEY).filter(
+				(cp) => cp.type === "anchor" && cp.selected,
+			);
+			expect(selectedAnchors).toHaveLength(0);
+		});
+
 		it("should keep the other path's vertex selection when Shift+clicking to add a path", () => {
 			const line = makeStraightPath("line", [0, 100, 200]);
 			const rect = createRectPath();

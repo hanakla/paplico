@@ -2723,7 +2723,15 @@ export class PathEditTool implements Tool {
 			)) {
 				const distSq =
 					(worldX - handle.worldX) ** 2 + (worldY - handle.worldY) ** 2;
-				if (distSq <= tolSq && distSq < bestDistSq) {
+				if (
+					distSq <= tolSq &&
+					distSq < bestDistSq &&
+					this.context.isPointInsideAncestorClips(
+						path.id,
+						handle.worldX,
+						handle.worldY,
+					)
+				) {
 					bestHandle = handle;
 					bestDistSq = distSq;
 				}

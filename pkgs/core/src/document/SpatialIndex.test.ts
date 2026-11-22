@@ -837,6 +837,31 @@ describe("SpatialIndex", () => {
 		});
 	});
 
+	describe("isPointInsideAncestorClips", () => {
+		it("tells points inside a moved clip group's mask from points outside it", () => {
+			const clipPath = makeClosedPath("clip-path");
+			const content = makeClosedPath("content");
+			const clipGroup = makeGroup("clip-group", ["clip-path", "content"], {
+				clipPathId: "clip-path",
+				transform: { x: 100, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+			});
+			const layer = makeLayer("layer-1", ["clip-group"]);
+			const store = makeStore([layer], {
+				"clip-group": clipGroup,
+				"clip-path": clipPath,
+				content,
+			});
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			// The mask spans world x 50..150 after the group's translation.
+			expect(idx.isPointInsideAncestorClips("content", 100, 0)).toBe(true);
+			expect(idx.isPointInsideAncestorClips("content", 0, 0)).toBe(false);
+			// The clip path is not masked by its own group.
+			expect(idx.isPointInsideAncestorClips("clip-path", 0, 0)).toBe(true);
+		});
+	});
+
 	describe("queryElements in a single-element scope", () => {
 		it("returns only the scope element as candidate", () => {
 			const scoped = makeImage("scoped", 0, 0, 40, 40);

@@ -1492,6 +1492,40 @@ export class SpatialIndex {
 	}
 
 	/**
+	 * Whether a world point on an element stays visible through every clip
+	 * group above it. A clip path is not masked by its own group.
+	 */
+	public isPointInsideAncestorClips(
+		elementId: string,
+		x: number,
+		y: number,
+	): boolean {
+		let currentId = elementId;
+		let parentId = this.parentGroupMap.get(currentId);
+		while (parentId) {
+			const parent = this.store.document.objects[parentId];
+			if (!parent) return true;
+			if (
+				isGroup(parent) &&
+				parent.clipPathId &&
+				parent.clipPathId !== currentId
+			) {
+				const local = this.toElementLocal(
+					parent,
+					asLocalCoord(x),
+					asLocalCoord(y),
+					this.resolveElementWorldTransform(parent.id, parent),
+				);
+				if (!this.isInsideClipPath(parent.clipPathId, local.x, local.y))
+					return false;
+			}
+			currentId = parentId;
+			parentId = this.parentGroupMap.get(currentId);
+		}
+		return true;
+	}
+
+	/**
 	 * Find the frontmost element actually painted at a point, digging through
 	 * every container. Unlike findElementAtPoint, which promotes hits to their
 	 * selectable container, this reaches the child whose appearance is seen.
