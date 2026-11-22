@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ElementTransform, Reference3DCamera } from "../../schema";
+import type { ElementTransform, Scene3DCamera } from "../../schema";
 import { composeTransforms } from "../../utils/geometry/space/coordinates";
 import {
 	computePerspectiveGuides,
@@ -17,7 +17,7 @@ const IDENTITY: ElementTransform = {
 const RECT = { cx: 0, cy: 0, width: 400, height: 300 };
 
 /** Camera on the +Z axis looking straight down -Z (image plane = XY plane). */
-const LOOK_DOWN_Z: Reference3DCamera = {
+const LOOK_DOWN_Z: Scene3DCamera = {
 	projection: "perspective",
 	position: [0, 1, 10],
 	target: [0, 1, 0],
@@ -25,11 +25,11 @@ const LOOK_DOWN_Z: Reference3DCamera = {
 };
 
 function guidesFor(
-	camera: Reference3DCamera,
+	camera: Scene3DCamera,
 	transform: ElementTransform = IDENTITY,
 ): PerspectiveGuideData {
 	return computePerspectiveGuides({
-		elementId: "reference3d-el",
+		elementId: "scene3d-el",
 		camera,
 		localRect: RECT,
 		transform,
@@ -180,13 +180,9 @@ describe("computePerspectiveGuides", () => {
 });
 
 describe("guideSourceAffectedByDelta", () => {
-	// Parent chain: reference3d-el → group-1 → group-outer.
+	// Parent chain: scene3d-el → group-1 → group-outer.
 	const parentOf = (id: string): string | null =>
-		id === "reference3d-el"
-			? "group-1"
-			: id === "group-1"
-				? "group-outer"
-				: null;
+		id === "scene3d-el" ? "group-1" : id === "group-1" ? "group-outer" : null;
 
 	it("should refresh when an ancestor group moves, and the recomputed VP follows the group", () => {
 		// A delta updating only the ancestor group must invalidate the guides…
@@ -194,7 +190,7 @@ describe("guideSourceAffectedByDelta", () => {
 			updated: new Map<string, unknown>([["group-1", {}]]),
 			deleted: new Set<string>(),
 		};
-		expect(guideSourceAffectedByDelta("reference3d-el", delta, parentOf)).toBe(
+		expect(guideSourceAffectedByDelta("scene3d-el", delta, parentOf)).toBe(
 			true,
 		);
 
@@ -224,17 +220,17 @@ describe("guideSourceAffectedByDelta", () => {
 			updated: new Map<string, unknown>([["group-outer", {}]]),
 			deleted: new Set<string>(),
 		};
-		expect(
-			guideSourceAffectedByDelta("reference3d-el", outerDelta, parentOf),
-		).toBe(true);
+		expect(guideSourceAffectedByDelta("scene3d-el", outerDelta, parentOf)).toBe(
+			true,
+		);
 
 		const selfDelta = {
-			updated: new Map<string, unknown>([["reference3d-el", {}]]),
+			updated: new Map<string, unknown>([["scene3d-el", {}]]),
 			deleted: new Set<string>(),
 		};
-		expect(
-			guideSourceAffectedByDelta("reference3d-el", selfDelta, parentOf),
-		).toBe(true);
+		expect(guideSourceAffectedByDelta("scene3d-el", selfDelta, parentOf)).toBe(
+			true,
+		);
 	});
 
 	it("should ignore deltas that touch neither the source nor its ancestors", () => {
@@ -242,7 +238,7 @@ describe("guideSourceAffectedByDelta", () => {
 			updated: new Map<string, unknown>([["unrelated-path", {}]]),
 			deleted: new Set<string>(["another-el"]),
 		};
-		expect(guideSourceAffectedByDelta("reference3d-el", delta, parentOf)).toBe(
+		expect(guideSourceAffectedByDelta("scene3d-el", delta, parentOf)).toBe(
 			false,
 		);
 	});

@@ -1507,7 +1507,7 @@ export function collectGroupExtrudeOutline(
 					break;
 				}
 				case "mesh":
-				case "reference3d":
+				case "scene3d":
 				case "repeat":
 					// Not extrudable — no outline.
 					break;
@@ -2125,7 +2125,7 @@ function multiPolygonToSegments(mp: MultiPolygon): CubicBezierSegment[] {
 	return result;
 }
 
-/** Same power-of-two bucketing as the Reference3D texture resolution. */
+/** Same power-of-two bucketing as the Scene3D texture resolution. */
 export function computeToleranceBucket(dpiScale: number): number {
 	const bucket = 2 ** Math.ceil(Math.log2(dpiScale));
 	return Math.min(Math.max(bucket, 0.25), 4);

@@ -179,7 +179,7 @@ describe("UI overlay builders", () => {
 		expect(
 			buildPerspectiveGuideOverlay(
 				{
-					elementId: "reference3d-el",
+					elementId: "scene3d-el",
 					axes: [
 						{ axis: "x", kind: "finite", point: { x: -500, y: 40 } },
 						{ axis: "y", kind: "infinite", direction: { x: 0, y: 1 } },

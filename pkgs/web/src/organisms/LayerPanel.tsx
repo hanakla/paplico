@@ -2031,6 +2031,8 @@ export function getElementTypeLabel(
 			return t("common.blend");
 		case "mesh":
 			return t("common.meshWarp");
+		case "scene3d":
+			return t("common.scene3d");
 		default:
 			return t("common.element");
 	}

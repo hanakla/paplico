@@ -4,6 +4,7 @@ import {
 	createArtboard,
 	createIdentityTransform,
 	createMeshWarpObjectFromGeometry,
+	createScene3DElement,
 } from "../document/factory";
 import {
 	LATEST_SCHEMA_VERSION,
@@ -15,7 +16,7 @@ import {
 	type Document,
 	getTransform,
 	type Path,
-	type Reference3DDef,
+	type Scene3DDef,
 } from "../schema";
 import { rectPath } from "../testUtils/svgFixtures";
 import { extractDocumentFromYDoc } from "./extractDocumentFromYDoc";
@@ -62,12 +63,12 @@ describe("YjsProvider", () => {
 			const provider = new YjsProvider({ callbacks });
 			const freshDoc = provider.resetWithFreshDoc();
 
-			const def: Reference3DDef = { id: "scene-1", nodes: [] };
-			provider.setReference3D(def);
+			const def: Scene3DDef = { id: "scene-1", nodes: [] };
+			provider.setScene3D(def);
 
 			// A stale binding would write into the destroyed pre-reset doc and
 			// leave the fresh doc's map empty.
-			expect(freshDoc.getMap("references3d").has("scene-1")).toBe(true);
+			expect(freshDoc.getMap("scenes3d").has("scene-1")).toBe(true);
 		});
 	});
 
@@ -3007,10 +3008,8 @@ describe("YjsProvider", () => {
 		});
 	});
 
-	describe("references3d CRUD", () => {
-		function makeSceneDef(
-			overrides: Partial<Reference3DDef> = {},
-		): Reference3DDef {
+	describe("scenes3d CRUD", () => {
+		function makeSceneDef(overrides: Partial<Scene3DDef> = {}): Scene3DDef {
 			return {
 				id: "scene-1",
 				name: "Room",
@@ -3040,14 +3039,14 @@ describe("YjsProvider", () => {
 			};
 		}
 
-		it("setReference3D stores the scene with nodes as a JSON string", () => {
+		it("setScene3D stores the scene with nodes as a JSON string", () => {
 			const provider = new YjsProvider({ callbacks });
 			const def = makeSceneDef();
 
-			provider.setReference3D(def);
+			provider.setScene3D(def);
 
 			const yScene = provider.ydoc
-				.getMap("references3d")
+				.getMap("scenes3d")
 				.get("scene-1") as Y.Map<unknown>;
 			expect(yScene.get("id")).toBe("scene-1");
 			expect(yScene.get("name")).toBe("Room");
@@ -3056,11 +3055,11 @@ describe("YjsProvider", () => {
 			provider.destroy();
 		});
 
-		it("updateReference3DNodes replaces the node list of an existing scene", () => {
+		it("updateScene3DNodes replaces the node list of an existing scene", () => {
 			const provider = new YjsProvider({ callbacks });
-			provider.setReference3D(makeSceneDef());
+			provider.setScene3D(makeSceneDef());
 
-			const newNodes: Reference3DDef["nodes"] = [
+			const newNodes: Scene3DDef["nodes"] = [
 				{
 					id: "node-sphere",
 					kind: "primitive",
@@ -3072,61 +3071,61 @@ describe("YjsProvider", () => {
 					},
 				},
 			];
-			provider.updateReference3DNodes("scene-1", newNodes);
+			provider.updateScene3DNodes("scene-1", newNodes);
 
 			const yScene = provider.ydoc
-				.getMap("references3d")
+				.getMap("scenes3d")
 				.get("scene-1") as Y.Map<unknown>;
 			expect(JSON.parse(yScene.get("nodes") as string)).toEqual(newNodes);
 
 			provider.destroy();
 		});
 
-		it("updateReference3DNodes is a no-op for an unknown scene id", () => {
+		it("updateScene3DNodes is a no-op for an unknown scene id", () => {
 			const provider = new YjsProvider({ callbacks });
 
-			provider.updateReference3DNodes("missing", []);
+			provider.updateScene3DNodes("missing", []);
 
-			expect(provider.ydoc.getMap("references3d").has("missing")).toBe(false);
+			expect(provider.ydoc.getMap("scenes3d").has("missing")).toBe(false);
 			provider.destroy();
 		});
 
-		it("deleteReference3D removes the scene definition", () => {
+		it("deleteScene3D removes the scene definition", () => {
 			const provider = new YjsProvider({ callbacks });
-			provider.setReference3D(makeSceneDef());
+			provider.setScene3D(makeSceneDef());
 
-			provider.deleteReference3D("scene-1");
+			provider.deleteScene3D("scene-1");
 
-			expect(provider.ydoc.getMap("references3d").has("scene-1")).toBe(false);
+			expect(provider.ydoc.getMap("scenes3d").has("scene-1")).toBe(false);
 			provider.destroy();
 		});
 
-		it("undo restores a deleted scene (yReferences3d is part of UndoManager scope)", () => {
+		it("undo restores a deleted scene (yScenes3d is part of UndoManager scope)", () => {
 			const provider = new YjsProvider({ callbacks });
-			provider.setReference3D(makeSceneDef());
+			provider.setScene3D(makeSceneDef());
 			provider.undoManager.stopCapturing();
 
-			provider.deleteReference3D("scene-1");
-			expect(provider.ydoc.getMap("references3d").has("scene-1")).toBe(false);
+			provider.deleteScene3D("scene-1");
+			expect(provider.ydoc.getMap("scenes3d").has("scene-1")).toBe(false);
 
 			provider.undo();
-			expect(provider.ydoc.getMap("references3d").has("scene-1")).toBe(true);
+			expect(provider.ydoc.getMap("scenes3d").has("scene-1")).toBe(true);
 
 			provider.destroy();
 		});
 
-		it("references3d round-trips through extractDocumentFromYDoc", () => {
+		it("scenes3d round-trips through extractDocumentFromYDoc", () => {
 			const provider = new YjsProvider({ callbacks });
 			const def = makeSceneDef();
-			provider.setReference3D(def);
+			provider.setScene3D(def);
 
 			const doc = extractDocumentFromYDoc(provider.ydoc);
 
-			expect(doc.references3d).toEqual({ "scene-1": def });
+			expect(doc.scenes3d).toEqual({ "scene-1": def });
 			provider.destroy();
 		});
 
-		it("replaceDocument populates references3d from the incoming document", () => {
+		it("replaceDocument populates scenes3d from the incoming document", () => {
 			const provider = new YjsProvider({ callbacks });
 			const def = makeSceneDef({ id: "scene-import" });
 
@@ -3139,11 +3138,11 @@ describe("YjsProvider", () => {
 				artboards: [],
 				brushPresets: [],
 				units: "px",
-				references3d: { "scene-import": def },
+				scenes3d: { "scene-import": def },
 			});
 
 			const doc = extractDocumentFromYDoc(provider.ydoc);
-			expect(doc.references3d).toEqual({ "scene-import": def });
+			expect(doc.scenes3d).toEqual({ "scene-import": def });
 			provider.destroy();
 		});
 	});
@@ -3264,6 +3263,53 @@ describe("YjsProvider", () => {
 			expect(getTransform(doc.objects[groupId])).toEqual(ROTATED);
 			expect(getTransform(doc.objects.a)).toEqual(createIdentityTransform());
 			expect(provider.canUndo()).toBe(false);
+		});
+
+		it("should move a 3D scene stored under its former names to the current ones", async () => {
+			const { provider } = createLegacyRoom();
+			const scene = createScene3DElement({
+				sceneId: "scene-1",
+				x: 0,
+				y: 0,
+				width: 100,
+				height: 100,
+			});
+			provider.addElement("layer-1", scene);
+			const yScene = provider.ydoc
+				.getMap<Y.Map<unknown>>("objects")
+				.get(scene.id);
+			yScene?.set("type", "reference3d");
+			provider.ydoc.getMap("references3d").set(
+				"scene-1",
+				new Y.Map([
+					["id", "scene-1"],
+					["nodes", "[]"],
+				]),
+			);
+
+			await provider.migrateRoomSchema();
+
+			expect(yScene?.get("type")).toBe("scene3d");
+			expect(provider.ydoc.getMap("references3d").size).toBe(0);
+			expect(extractDocumentFromYDoc(provider.ydoc).scenes3d).toEqual({
+				"scene-1": { id: "scene-1", nodes: [] },
+			});
+			// Scene edits look the definition up under the current name.
+			provider.updateScene3DNodes("scene-1", [
+				{
+					id: "n1",
+					kind: "primitive",
+					shape: "box",
+					transform: {
+						position: [0, 0, 0],
+						rotation: [0, 0, 0, 1],
+						scale: [1, 1, 1],
+					},
+				},
+			]);
+			expect(
+				extractDocumentFromYDoc(provider.ydoc).scenes3d?.["scene-1"].nodes,
+			).toHaveLength(1);
 		});
 
 		it("should leave a path's binary segments alone when the migration keeps them", async () => {

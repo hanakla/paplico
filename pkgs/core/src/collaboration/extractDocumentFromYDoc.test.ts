@@ -6,7 +6,7 @@ import type {
 	Group,
 	ImageObject,
 	Path,
-	Reference3DElement,
+	Scene3DElement,
 	TextElement,
 } from "../schema";
 import { TRANSIENT_LAYER_KIND } from "../schema";
@@ -454,10 +454,10 @@ describe("objectToStoredFields ↔ yMapToObject round-trip", () => {
 		expect(stripUndefined(result)).toEqual(stripUndefined(image));
 	});
 
-	it("Reference3DElement: all fields survive round-trip", () => {
-		const reference3d = {
-			type: "reference3d",
-			id: "reference3d-1",
+	it("Scene3DElement: all fields survive round-trip", () => {
+		const scene3d = {
+			type: "scene3d",
+			id: "scene3d-1",
 			opacity: 0.9,
 			blendMode: "normal",
 			sceneId: "scene-1",
@@ -480,13 +480,13 @@ describe("objectToStoredFields ↔ yMapToObject round-trip", () => {
 				color: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 },
 			},
 			transform: IDENTITY_TRANSFORM,
-		} satisfies Reference3DElement;
+		} satisfies Scene3DElement;
 
-		const fields = objectToStoredFields(reference3d);
+		const fields = objectToStoredFields(scene3d);
 		const yMap = storedFieldsToYMap(fields);
 		const result = yMapToObject(yMap);
 
-		expect(stripUndefined(result)).toEqual(stripUndefined(reference3d));
+		expect(stripUndefined(result)).toEqual(stripUndefined(scene3d));
 	});
 
 	it("CompoundPath: all fields survive round-trip", () => {

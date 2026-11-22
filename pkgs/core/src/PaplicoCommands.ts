@@ -30,8 +30,8 @@ import {
 	createIdentityTransform,
 	createMeshWarpObject,
 	createMeshWarpObjectFromGeometry,
-	createReference3DElement,
 	createRepeatObject,
+	createScene3DElement,
 } from "./document/factory";
 import type { SpatialIndex } from "./document/SpatialIndex";
 import { isLengthUnit, type LengthUnit } from "./document/units";
@@ -102,22 +102,22 @@ import {
 	isMeshGradient,
 	isPath,
 	isRadialGradient,
-	isReference3D,
 	isRepeat,
+	isScene3D,
 	type Layer,
 	type MeshArtObject,
 	type MeshGradientVertex,
 	type ObjectMask,
 	type Path,
 	type PathSegment,
-	type Reference3DDef,
-	type Reference3DElement,
-	type Reference3DNode,
 	type RepeatGridParams,
 	type RepeatMirrorParams,
 	type RepeatMode,
 	type RepeatObject,
 	type RepeatRadialParams,
+	type Scene3DDef,
+	type Scene3DElement,
+	type Scene3DNode,
 	type StrokeAppearance,
 	type StrokeColor,
 	type TextContent,
@@ -3130,9 +3130,7 @@ export class PaplicoCommands {
 		// the axis factors and folds the rest into its transform, a mesh or
 		// repeat folds it whole.
 		const contentMap: Affine2D =
-			element.type === "image" ||
-			isReference3D(element) ||
-			element.type === "text"
+			element.type === "image" || isScene3D(element) || element.type === "text"
 				? { a: axisScale.x, b: 0, c: 0, d: axisScale.y, e: 0, f: 0 }
 				: isMesh(element) || isRepeat(element)
 					? IDENTITY_AFFINE
@@ -3213,7 +3211,7 @@ export class PaplicoCommands {
 			if (Object.keys(geometryUpdates).length > 0) update(geometryUpdates);
 		} else if (element.type === "group") {
 			for (const childId of element.childIds) handDown(childId);
-		} else if (element.type === "image" || isReference3D(element)) {
+		} else if (element.type === "image" || isScene3D(element)) {
 			update({
 				x: element.x * axisScale.x,
 				y: element.y * axisScale.y,
@@ -3954,7 +3952,7 @@ export class PaplicoCommands {
 					break;
 				case "path":
 				case "image":
-				case "reference3d":
+				case "scene3d":
 					// Reference no other elements beyond the mask handled above.
 					break;
 				default:
@@ -5329,25 +5327,25 @@ export class PaplicoCommands {
 		this.ctx.yjsProvider.addObjectOnly(element, this.getMutationOrigin());
 	}
 
-	// --- Reference3D (shared 3D scene definitions + viewing elements) ---
+	// --- Scene3D (shared 3D scene definitions + viewing elements) ---
 
 	/**
 	 * Create a fresh shared 3D scene (floor + one box as a starting point) and
-	 * a Reference3DElement viewing it, centered at world (x, y). One transaction =
+	 * a Scene3DElement viewing it, centered at world (x, y). One transaction =
 	 * one undo step removing both.
 	 */
-	public createReference3DScene(
+	public createScene3D(
 		x: number,
 		y: number,
 		width = 400,
 		height = 300,
-	): Reference3DElement | null {
+	): Scene3DElement | null {
 		const layerId = this.ctx.store.currentLayerId;
 		if (this.cannotMutate() || !layerId || this.isLayerLocked(layerId)) {
 			return null;
 		}
 
-		const def: Reference3DDef = {
+		const def: Scene3DDef = {
 			id: generateUid("scene"),
 			nodes: [
 				{
@@ -5362,7 +5360,7 @@ export class PaplicoCommands {
 				},
 			],
 		};
-		const element = createReference3DElement({
+		const element = createScene3DElement({
 			sceneId: def.id,
 			x,
 			y,
@@ -5371,7 +5369,7 @@ export class PaplicoCommands {
 		});
 
 		this.ctx.yjsProvider.transact(() => {
-			this.ctx.yjsProvider.setReference3D(def, this.getMutationOrigin());
+			this.ctx.yjsProvider.setScene3D(def, this.getMutationOrigin());
 			this.ctx.yjsProvider.addElement(
 				layerId,
 				element,
@@ -5384,23 +5382,23 @@ export class PaplicoCommands {
 
 	/** Append a node to a shared scene definition. */
 	/** Rename a shared 3D scene definition (empty name clears it). */
-	public renameReference3DScene(sceneId: string, name: string): void {
+	public renameScene3D(sceneId: string, name: string): void {
 		if (this.cannotMutate()) return;
-		const def = this.ctx.store.document.references3d?.[sceneId];
+		const def = this.ctx.store.document.scenes3d?.[sceneId];
 		if (!def) return;
 		const trimmed = name.trim();
 		if ((def.name ?? "") === trimmed) return;
-		this.ctx.yjsProvider.setReference3D(
+		this.ctx.yjsProvider.setScene3D(
 			{ ...def, name: trimmed || undefined },
 			this.getMutationOrigin(),
 		);
 	}
 
-	public reference3dAddNode(sceneId: string, node: Reference3DNode): void {
+	public scene3dAddNode(sceneId: string, node: Scene3DNode): void {
 		if (this.cannotMutate()) return;
-		const def = this.ctx.store.document.references3d?.[sceneId];
+		const def = this.ctx.store.document.scenes3d?.[sceneId];
 		if (!def) return;
-		this.ctx.yjsProvider.updateReference3DNodes(
+		this.ctx.yjsProvider.updateScene3DNodes(
 			sceneId,
 			[...def.nodes, node],
 			this.getMutationOrigin(),
@@ -5408,13 +5406,13 @@ export class PaplicoCommands {
 	}
 
 	/** Remove a node from a shared scene definition (one undo step). */
-	public reference3dRemoveNode(sceneId: string, nodeId: string): void {
+	public scene3dRemoveNode(sceneId: string, nodeId: string): void {
 		if (this.cannotMutate()) return;
-		const def = this.ctx.store.document.references3d?.[sceneId];
+		const def = this.ctx.store.document.scenes3d?.[sceneId];
 		if (!def) return;
 		const nodes = def.nodes.filter((node) => node.id !== nodeId);
 		if (nodes.length === def.nodes.length) return;
-		this.ctx.yjsProvider.updateReference3DNodes(
+		this.ctx.yjsProvider.updateScene3DNodes(
 			sceneId,
 			nodes,
 			this.getMutationOrigin(),
@@ -5425,16 +5423,16 @@ export class PaplicoCommands {
 	 * Duplicate a node in a shared scene definition with a small position
 	 * offset (one undo step). Returns the new node, or null when missing.
 	 */
-	public reference3dDuplicateNode(
+	public scene3dDuplicateNode(
 		sceneId: string,
 		nodeId: string,
-	): Reference3DNode | null {
+	): Scene3DNode | null {
 		if (this.cannotMutate()) return null;
-		const def = this.ctx.store.document.references3d?.[sceneId];
+		const def = this.ctx.store.document.scenes3d?.[sceneId];
 		const source = def?.nodes.find((node) => node.id === nodeId);
 		if (!def || !source) return null;
 
-		const duplicate: Reference3DNode = {
+		const duplicate: Scene3DNode = {
 			...structuredClone(source),
 			id: generateUid("node"),
 		};
@@ -5446,7 +5444,7 @@ export class PaplicoCommands {
 				duplicate.transform.position[2] + 0.3,
 			],
 		};
-		this.ctx.yjsProvider.updateReference3DNodes(
+		this.ctx.yjsProvider.updateScene3DNodes(
 			sceneId,
 			[...def.nodes, duplicate],
 			this.getMutationOrigin(),
@@ -5455,18 +5453,18 @@ export class PaplicoCommands {
 	}
 
 	/** Patch a single node of a shared scene definition (one undo step). */
-	public reference3dCommitNode(
+	public scene3dCommitNode(
 		sceneId: string,
 		nodeId: string,
-		patch: Partial<Reference3DNode>,
+		patch: Partial<Scene3DNode>,
 	): void {
 		if (this.cannotMutate()) return;
-		const def = this.ctx.store.document.references3d?.[sceneId];
+		const def = this.ctx.store.document.scenes3d?.[sceneId];
 		if (!def) return;
 		const nodes = def.nodes.map((node) =>
-			node.id === nodeId ? ({ ...node, ...patch } as Reference3DNode) : node,
+			node.id === nodeId ? ({ ...node, ...patch } as Scene3DNode) : node,
 		);
-		this.ctx.yjsProvider.updateReference3DNodes(
+		this.ctx.yjsProvider.updateScene3DNodes(
 			sceneId,
 			nodes,
 			this.getMutationOrigin(),
@@ -5477,11 +5475,11 @@ export class PaplicoCommands {
 	 * Store a VRM binary as an EmbeddedFile (hash-deduplicated) and append a
 	 * figure node referencing it, in one transaction (= one undo step).
 	 */
-	public reference3dAddFigure(
+	public scene3dAddFigure(
 		sceneId: string,
 		file: EmbeddedFile,
-	): Reference3DNode | null {
-		return this.reference3dAppendFileNode(sceneId, file, (fileUid) => ({
+	): Scene3DNode | null {
+		return this.scene3dAppendFileNode(sceneId, file, (fileUid) => ({
 			id: generateUid("node"),
 			kind: "figure",
 			fileUid,
@@ -5498,11 +5496,11 @@ export class PaplicoCommands {
 	 * Store a glTF binary (.glb) as an EmbeddedFile (hash-deduplicated) and
 	 * append a static mesh node referencing it, in one transaction.
 	 */
-	public reference3dAddMesh(
+	public scene3dAddMesh(
 		sceneId: string,
 		file: EmbeddedFile,
-	): Reference3DNode | null {
-		return this.reference3dAppendFileNode(sceneId, file, (fileUid) => ({
+	): Scene3DNode | null {
+		return this.scene3dAppendFileNode(sceneId, file, (fileUid) => ({
 			id: generateUid("node"),
 			kind: "mesh",
 			fileUid,
@@ -5514,19 +5512,19 @@ export class PaplicoCommands {
 		}));
 	}
 
-	private reference3dAppendFileNode(
+	private scene3dAppendFileNode(
 		sceneId: string,
 		file: EmbeddedFile,
-		buildNode: (fileUid: string) => Reference3DNode,
-	): Reference3DNode | null {
+		buildNode: (fileUid: string) => Scene3DNode,
+	): Scene3DNode | null {
 		if (this.cannotMutate()) return null;
-		const def = this.ctx.store.document.references3d?.[sceneId];
+		const def = this.ctx.store.document.scenes3d?.[sceneId];
 		if (!def) return null;
 
-		let node: Reference3DNode | null = null;
+		let node: Scene3DNode | null = null;
 		this.ctx.yjsProvider.transact(() => {
 			node = buildNode(this.ctx.yjsProvider.addFile(file));
-			this.ctx.yjsProvider.updateReference3DNodes(
+			this.ctx.yjsProvider.updateScene3DNodes(
 				sceneId,
 				[...def.nodes, node],
 				this.getMutationOrigin(),

@@ -143,8 +143,8 @@ export function cloneElementsWithIdRemap(
 			}
 			case "path":
 			case "image":
-			case "reference3d":
-				// Reference3DElement.sceneId points at a shared scene, not at an
+			case "scene3d":
+				// Scene3DElement.sceneId points at a shared scene, not at an
 				// element, so it stays as-is; the rest hold no nested ids at all.
 				return { ...deepClone(element), id: newId };
 			default:

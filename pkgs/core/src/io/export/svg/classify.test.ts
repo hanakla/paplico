@@ -7,7 +7,7 @@ import type {
 	Filter,
 	Group,
 	Path,
-	Reference3DElement,
+	Scene3DElement,
 	StrokeAppearance,
 	TextElement,
 	TextStyle,
@@ -390,16 +390,16 @@ describe("classifyElement", () => {
 		).toBe("raster");
 	});
 
-	it("should skip reference3d unless includeInExport is set", () => {
+	it("should skip scene3d unless includeInExport is set", () => {
 		const opts = makeOptions([]);
-		const ref: Reference3DElement = {
-			type: "reference3d",
+		const ref: Scene3DElement = {
+			type: "scene3d",
 			id: `ref-${uidCounter++}`,
 			opacity: 1,
 			blendMode: "normal",
 			transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
 			sceneId: "scene",
-			camera: {} as Reference3DElement["camera"],
+			camera: {} as Scene3DElement["camera"],
 			x: 0,
 			y: 0,
 			width: 10,

@@ -49,17 +49,8 @@ import {
 	PaplicoShortcuts,
 } from "./PaplicoShortcuts";
 import { PaplicoTools } from "./PaplicoTools";
-import {
-	getReference3DServiceSync,
-	loadReference3DService,
-} from "./reference3d";
-import {
-	computePerspectiveGuides,
-	guideSourceAffectedByDelta,
-	type PerspectiveGuideData,
-} from "./reference3d/perspective/vanishingPoints";
 import { CanvasTarget } from "./renderer/CanvasTarget";
-import type { Reference3DRenderContext } from "./renderer/canvas/elements/Reference3DElementRenderer";
+import type { Scene3DRenderContext } from "./renderer/canvas/elements/Scene3DElementRenderer";
 import { DocumentChangeSubscriber } from "./renderer/DocumentChangeSubscriber";
 import {
 	RenderOrchestrator,
@@ -94,6 +85,12 @@ import type {
 	ArtboardSelectionUIData,
 	SelectionUIData,
 } from "./renderer/ui/types";
+import { getScene3DServiceSync, loadScene3DService } from "./scene3d";
+import {
+	computePerspectiveGuides,
+	guideSourceAffectedByDelta,
+	type PerspectiveGuideData,
+} from "./scene3d/perspective/vanishingPoints";
 import {
 	type AnyArtObject,
 	type Artboard,
@@ -110,12 +107,12 @@ import {
 	getArtboardBounds,
 	getTransform,
 	isAppearancePresetRef,
-	isReference3D,
+	isScene3D,
 	type Layer,
 	type Path,
 	type RawRGBA,
-	type Reference3DDef,
-	type Reference3DElement,
+	type Scene3DDef,
+	type Scene3DElement,
 	type StrokeAppearance,
 	type StrokeColor,
 	type TextElement,
@@ -137,9 +134,9 @@ import { MeshDeformTool } from "./tools/MeshDeformTool";
 import { PathEditTool } from "./tools/PathEditTool";
 import { PathTool } from "./tools/PathTool";
 import { type PenStrokeRecord, PenTool } from "./tools/PenTool";
-import { Reference3DController } from "./tools/Reference3DController";
-import { Reference3DTool } from "./tools/Reference3DTool";
 import { createSelectionUIData } from "./tools/resizeHandleHelper";
+import { Scene3DController } from "./tools/Scene3DController";
+import { Scene3DTool } from "./tools/Scene3DTool";
 import { SelectTool } from "./tools/SelectTool";
 import { ShapeTool } from "./tools/ShapeTool";
 import { SkewTool } from "./tools/SkewTool";
@@ -285,8 +282,9 @@ export type PublicUIState = Readonly<
 		| "patternEditSession"
 		| "maskEditSession"
 		| "toolSession"
-		| "reference3dEditingElementId"
-		| "reference3dSelectedNodeId"
+		| "scene3dEditingElementId"
+		| "scene3dSelectedNodeId"
+		| "scene3dEditorCamera"
 		| "editingScopeStack"
 		| "hdrSupported"
 	>
@@ -367,13 +365,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	public readonly fonts: FontManager;
 	private currentToolType: ToolType;
 
-	// --- Reference3D subsystem (lazy three.js runtime) ---
-	private readonly reference3dController = new Reference3DController();
-	/** Set once loadReference3DService has been kicked (dedupe guard). */
-	private reference3dLoadRequested = false;
+	// --- Scene3D subsystem (lazy three.js runtime) ---
+	private readonly scene3dController = new Scene3DController();
+	/** Set once loadScene3DService has been kicked (dedupe guard). */
+	private scene3dLoadRequested = false;
 	/** Per-scene node previews for gizmo drags (Yjs-bypassing). */
-	private readonly reference3dDefPreviews = new Map<string, Reference3DDef>();
-	/** Reference3d element the perspective ruler derives guides from. */
+	private readonly scene3dDefPreviews = new Map<string, Scene3DDef>();
+	/** Element whose scene editor opens once the scene3d tool is created. */
+	private pendingScene3DEditorElementId: string | null = null;
+	/** Scene3d element the perspective ruler derives guides from. */
 	private perspectiveGuideSourceId: string | null = null;
 	/** Cached guide data for tools (recomputed on source changes). */
 	private perspectiveGuides: PerspectiveGuideData | null = null;
@@ -448,14 +448,20 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.documentResolutionScale,
 		);
 		this.wireTextDocumentResolver();
-		// Reference3D edit isolation dims the whole composite — entering/leaving
+		// Scene3D edit isolation dims the whole composite — entering/leaving
 		// the session needs a document-level re-render, not just overlays.
-		this.reference3dController.onEditingChange = (elementId) => {
-			this.rendererStore.reference3dEditingElementId = elementId;
+		this.scene3dController.onEditingChange = (elementId) => {
+			this.rendererStore.scene3dEditingElementId = elementId;
 			this.markDirty("editingScope");
 		};
-		this.reference3dController.onNodeSelectionChange = (nodeId) => {
-			this.rendererStore.reference3dSelectedNodeId = nodeId;
+		this.scene3dController.onNodeSelectionChange = (nodeId) => {
+			this.rendererStore.scene3dSelectedNodeId = nodeId;
+		};
+		// The scene editor's view is drawn over the finished frame, so a camera
+		// move leaves the document pixels as they are.
+		this.scene3dController.onEditorCameraChange = (camera) => {
+			this.rendererStore.scene3dEditorCamera = camera;
+			this.markDirty("selection");
 		};
 		this.textToolController = options?.textToolController ?? null;
 		this.textToolController?.setOnTextEditUIChange((data) => {
@@ -896,8 +902,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			},
 		});
 
-		this.renderer.setReference3DContextProvider(() =>
-			this.buildReference3DRenderContext(),
+		this.renderer.setScene3DContextProvider(() =>
+			this.buildScene3DRenderContext(),
 		);
 
 		// Re-evaluate font-missing outlines and the selection's axis values once a
@@ -1213,83 +1219,83 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		}
 	}
 
-	// ===== Reference3D subsystem =====
+	// ===== Scene3D subsystem =====
 
 	/**
-	 * Renderer-facing Reference3D accessor. Null until the lazy three.js runtime
-	 * has loaded — the renderer skips reference3d elements in that window and a
+	 * Renderer-facing Scene3D accessor. Null until the lazy three.js runtime
+	 * has loaded — the renderer skips scene3d elements in that window and a
 	 * re-render is kicked when the load resolves.
 	 */
-	private buildReference3DRenderContext(): Reference3DRenderContext | null {
-		const service = getReference3DServiceSync();
+	private buildScene3DRenderContext(): Scene3DRenderContext | null {
+		const service = getScene3DServiceSync();
 		if (!service) return null;
-		const committed = this.rendererStore.document.references3d ?? {};
+		const committed = this.rendererStore.document.scenes3d ?? {};
 		return {
 			service,
-			references3d:
-				this.reference3dDefPreviews.size === 0
+			scenes3d:
+				this.scene3dDefPreviews.size === 0
 					? committed
 					: {
 							...committed,
-							...Object.fromEntries(this.reference3dDefPreviews),
+							...Object.fromEntries(this.scene3dDefPreviews),
 						},
 		};
 	}
 
 	/** Committed scene definition with any active drag preview applied. */
-	private getReference3DDefWithPreview(sceneId: string): Reference3DDef | null {
+	private getScene3DDefWithPreview(sceneId: string): Scene3DDef | null {
 		return (
-			this.reference3dDefPreviews.get(sceneId) ??
-			this.rendererStore.document.references3d?.[sceneId] ??
+			this.scene3dDefPreviews.get(sceneId) ??
+			this.rendererStore.document.scenes3d?.[sceneId] ??
 			null
 		);
 	}
 
 	/** Kick the lazy three.js runtime load once; re-render when it lands. */
-	private requestReference3DService(): void {
-		if (this.reference3dLoadRequested) return;
-		this.reference3dLoadRequested = true;
-		loadReference3DService()
+	private requestScene3DService(): void {
+		if (this.scene3dLoadRequested) return;
+		this.scene3dLoadRequested = true;
+		loadScene3DService()
 			.then(() => {
-				// Reference3d elements were skipped while the runtime was absent —
+				// Scene3d elements were skipped while the runtime was absent —
 				// invalidate the document cache so they render now.
 				this.renderer.invalidateDocumentCache();
 				this.markDirty("document");
 			})
 			.catch((error) => {
-				this.reference3dLoadRequested = false;
-				console.error("Failed to load Reference3D runtime:", error);
+				this.scene3dLoadRequested = false;
+				console.error("Failed to load Scene3D runtime:", error);
 			});
 	}
 
-	/** Load the 3D runtime as soon as a document brings reference3d elements in. */
-	private requestReference3DServiceIfDocumentNeedsIt(): void {
-		if (this.reference3dLoadRequested) return;
+	/** Load the 3D runtime as soon as a document brings scene3d elements in. */
+	private requestScene3DServiceIfDocumentNeedsIt(): void {
+		if (this.scene3dLoadRequested) return;
 		const objects = this.rendererStore.document.objects;
 		for (const id in objects) {
-			if (objects[id].type === "reference3d") {
-				this.requestReference3DService();
+			if (objects[id].type === "scene3d") {
+				this.requestScene3DService();
 				return;
 			}
 		}
 	}
 
 	/**
-	 * Add a 3D model to the scene currently being edited with the Reference3D
+	 * Add a 3D model to the scene currently being edited with the Scene3D
 	 * tool: .vrm files become poseable figure nodes, other glTF binaries
 	 * (.glb) become static mesh nodes. Bytes come from the app layer (core
 	 * never reads files itself); the binary is stored as an EmbeddedFile
 	 * (hash-deduplicated) and the node is appended in one undo step.
 	 */
-	public async reference3dAddModelFromBytes(
+	public async scene3dAddModelFromBytes(
 		bytes: Uint8Array<ArrayBuffer>,
 		fileName: string,
 	): Promise<boolean> {
-		const elementId = this.reference3dController.getEditingElementId();
+		const elementId = this.scene3dController.getEditingElementId();
 		const element = elementId
 			? this.rendererStore.document.objects[elementId]
 			: undefined;
-		if (!element || !isReference3D(element)) return false;
+		if (!element || !isScene3D(element)) return false;
 
 		const file = await createEmbeddedFileFromBytes(
 			bytes,
@@ -1297,22 +1303,22 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			"model/gltf-binary",
 		);
 		const node = fileName.toLowerCase().endsWith(".vrm")
-			? this.commands.reference3dAddFigure(element.sceneId, file)
-			: this.commands.reference3dAddMesh(element.sceneId, file);
+			? this.commands.scene3dAddFigure(element.sceneId, file)
+			: this.commands.scene3dAddMesh(element.sceneId, file);
 		if (!node) return false;
 
-		this.requestReference3DService();
+		this.requestScene3DService();
 		this.markDirty("document");
 		return true;
 	}
 
 	/**
-	 * Patch a reference3d element (light direction, export inclusion, scene
+	 * Patch a scene3d element (light direction, export inclusion, scene
 	 * reference, …) regardless of whether it is being edited.
 	 */
-	public reference3dUpdateElement(
+	public scene3dUpdateElement(
 		elementId: string,
-		patch: Partial<Reference3DElement>,
+		patch: Partial<Scene3DElement>,
 	): void {
 		const layerId = this.rendererStore.document.layers.find((l) =>
 			l.elementIds.includes(elementId),
@@ -1322,9 +1328,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		// selection.
 		if (
 			patch.sceneId !== undefined &&
-			this.reference3dController.getEditingElementId() === elementId
+			this.scene3dController.getEditingElementId() === elementId
 		) {
-			this.reference3dController.selectNode(null);
+			this.scene3dController.selectNode(null);
 		}
 		this.commands.updateElement(layerId, elementId, patch);
 		// Overlay geometry (gizmo) may depend on the patched fields.
@@ -1332,50 +1338,48 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
-	 * Patch the reference3d element currently being edited. No-op when no
+	 * Patch the scene3d element currently being edited. No-op when no
 	 * scene is being edited.
 	 */
-	public reference3dUpdateEditingElement(
-		patch: Partial<Reference3DElement>,
-	): void {
-		const id = this.reference3dController.getEditingElementId();
+	public scene3dUpdateEditingElement(patch: Partial<Scene3DElement>): void {
+		const id = this.scene3dController.getEditingElementId();
 		if (!id) return;
-		this.reference3dUpdateElement(id, patch);
+		this.scene3dUpdateElement(id, patch);
 	}
 
 	/**
 	 * Duplicate the node selected inside the edited scene (small position
 	 * offset, one undo step) and select the copy. No-op without a selection.
 	 */
-	public reference3dDuplicateSelectedNode(): void {
-		const elementId = this.reference3dController.getEditingElementId();
-		const nodeId = this.reference3dController.getSelectedNodeId();
+	public scene3dDuplicateSelectedNode(): void {
+		const elementId = this.scene3dController.getEditingElementId();
+		const nodeId = this.scene3dController.getSelectedNodeId();
 		const element = elementId
 			? this.rendererStore.document.objects[elementId]
 			: undefined;
-		if (!element || !isReference3D(element) || !nodeId) return;
+		if (!element || !isScene3D(element) || !nodeId) return;
 
-		const duplicate = this.commands.reference3dDuplicateNode(
+		const duplicate = this.commands.scene3dDuplicateNode(
 			element.sceneId,
 			nodeId,
 		);
 		if (!duplicate) return;
-		this.reference3dController.selectNode(duplicate.id);
+		this.scene3dController.selectNode(duplicate.id);
 		this.tool?.refreshUI?.();
 		this.markDirty("document");
 	}
 
 	/** Delete the node selected inside the edited scene (one undo step). */
-	public reference3dDeleteSelectedNode(): void {
-		const elementId = this.reference3dController.getEditingElementId();
-		const nodeId = this.reference3dController.getSelectedNodeId();
+	public scene3dDeleteSelectedNode(): void {
+		const elementId = this.scene3dController.getEditingElementId();
+		const nodeId = this.scene3dController.getSelectedNodeId();
 		const element = elementId
 			? this.rendererStore.document.objects[elementId]
 			: undefined;
-		if (!element || !isReference3D(element) || !nodeId) return;
+		if (!element || !isScene3D(element) || !nodeId) return;
 
-		this.commands.reference3dRemoveNode(element.sceneId, nodeId);
-		this.reference3dController.selectNode(null);
+		this.commands.scene3dRemoveNode(element.sceneId, nodeId);
+		this.scene3dController.selectNode(null);
 		this.tool?.refreshUI?.();
 		this.markDirty("document");
 	}
@@ -1468,7 +1472,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	// ===== Perspective ruler =====
 
 	/**
-	 * Set (or clear) the reference3d element the perspective ruler derives its
+	 * Set (or clear) the scene3d element the perspective ruler derives its
 	 * vanishing points from. Guides recompute on every camera / transform
 	 * change of the source element and clear automatically when it vanishes.
 	 */
@@ -1478,17 +1482,17 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
-	 * Horizon / vanishing-point guides follow the selected reference3d element
+	 * Horizon / vanishing-point guides follow the selected scene3d element
 	 * (first one in the selection). An active scene edit session owns the
 	 * source instead — the tool sets it explicitly on enter.
 	 */
 	private syncPerspectiveGuideSourceToSelection(): void {
-		if (this.reference3dController.getEditingElementId()) return;
+		if (this.scene3dController.getEditingElementId()) return;
 		const objects = this.rendererStore.document.objects;
 		const selectedSceneId =
 			this.rendererStore.selectedElementIds.find((id) => {
 				const element = objects[id];
-				return element != null && isReference3D(element);
+				return element != null && isScene3D(element);
 			}) ?? null;
 		if (selectedSceneId !== this.perspectiveGuideSourceId) {
 			this.setPerspectiveGuideSource(selectedSceneId);
@@ -1505,7 +1509,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			const element =
 				this.rendererStore.elementOverrides.get(id) ??
 				this.rendererStore.document.objects[id];
-			if (element && isReference3D(element)) {
+			if (element && isScene3D(element)) {
 				const ancestor = this.spatialIndex.getAncestorTransform(id);
 				guides = computePerspectiveGuides({
 					elementId: id,
@@ -1971,7 +1975,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				editingScopeStack: isActiveTarget
 					? this.rendererStore.editingScopeStack
 					: undefined,
-				isolatedElementId: this.reference3dController.getEditingElementId(),
+				isolatedElementId: this.scene3dController.getEditingElementId(),
+				scene3dEditorCamera: isActiveTarget
+					? this.scene3dController.getEditorCamera()
+					: null,
 				elementOverrides:
 					this.rendererStore.elementOverrides.size > 0
 						? this.rendererStore.elementOverrides
@@ -2088,7 +2095,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						.setHdrEnabled(!!document.hdr?.enabled)
 						.catch((e) => console.error("Failed to switch HDR mode:", e));
 					this.syncSoftProofToDocument(document);
-					this.requestReference3DServiceIfDocumentNeedsIt();
+					this.requestScene3DServiceIfDocumentNeedsIt();
 					if (this.perspectiveGuideSourceId) this.refreshPerspectiveGuides();
 					this.refreshGuideOverlay();
 				},
@@ -2158,10 +2165,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					);
 					this.patternEdit.refreshSessionVisuals();
 
-					if (!this.reference3dLoadRequested) {
+					if (!this.scene3dLoadRequested) {
 						for (const [, obj] of delta.added) {
-							if (obj.type === "reference3d") {
-								this.requestReference3DService();
+							if (obj.type === "scene3d") {
+								this.requestScene3DService();
 								break;
 							}
 						}
@@ -2612,6 +2619,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.selection.clear();
 		this.clearAllOverrides();
 		this.rendererStore.editingScopeStack = [];
+		this.scene3dController.endEdit();
 		this.rendererStore.selectedArtboardId = null;
 		this.rendererStore.uiOverlayState.overlays = {};
 		this.rendererStore.toolSession = null;
@@ -2681,7 +2689,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private createToolContext(): ToolContext {
 		return new ToolContext({
 			textToolController: this.textToolController,
-			reference3dController: this.reference3dController,
+			scene3dController: this.scene3dController,
 
 			strokeComplete: (path) => {
 				this.clearAllOverrides();
@@ -2877,30 +2885,29 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					this.tool.enterEditModeForElement(element);
 				}
 			},
-			reference3dEdit: (element) => {
-				if (!isReference3D(element)) return;
-				this.updateToolState({ currentTool: "reference3d" });
-				if (this.tool instanceof Reference3DTool) {
-					this.tool.enterEditModeForElement(element);
-				}
+			scene3dOpenEditor: (element) => {
+				if (!isScene3D(element)) return;
+				// The scene3d tool exists only once the tool change is delivered
+				// (see setupBrushSettingsSubscription), which opens the editor.
+				this.pendingScene3DEditorElementId = element.id;
+				this.updateToolState({ currentTool: "scene3d" });
 			},
-			reference3dExitEdit: () => {
+			scene3dExitEdit: () => {
 				this.tools.setCurrentTool("select");
 			},
-			reference3dCreate: (x, y, width, height) =>
-				this.commands.createReference3DScene(x, y, width, height),
-			reference3dGetDef: (sceneId) =>
-				this.getReference3DDefWithPreview(sceneId),
-			reference3dAddNode: (sceneId, node) =>
-				this.commands.reference3dAddNode(sceneId, node),
-			reference3dCommitNode: (sceneId, nodeId, patch) =>
-				this.commands.reference3dCommitNode(sceneId, nodeId, patch),
-			reference3dPreviewCamera: (elementId, camera) => {
+			scene3dCreate: (x, y, width, height) =>
+				this.commands.createScene3D(x, y, width, height),
+			scene3dGetDef: (sceneId) => this.getScene3DDefWithPreview(sceneId),
+			scene3dAddNode: (sceneId, node) =>
+				this.commands.scene3dAddNode(sceneId, node),
+			scene3dCommitNode: (sceneId, nodeId, patch) =>
+				this.commands.scene3dCommitNode(sceneId, nodeId, patch),
+			scene3dPreviewCamera: (elementId, camera) => {
 				if (!camera) {
 					this.clearElementOverride(elementId);
 				} else {
 					const element = this.rendererStore.document.objects[elementId];
-					if (element && isReference3D(element)) {
+					if (element && isScene3D(element)) {
 						this.setElementOverride(elementId, { ...element, camera });
 					}
 				}
@@ -2909,25 +2916,27 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					this.refreshPerspectiveGuides();
 				}
 			},
-			reference3dPreviewNodes: (sceneId, nodes) => {
+			scene3dPreviewNodes: (sceneId, nodes) => {
 				if (!nodes) {
-					if (this.reference3dDefPreviews.delete(sceneId)) {
+					if (this.scene3dDefPreviews.delete(sceneId)) {
 						this.markDirty("preview");
 					}
 					return;
 				}
-				const def = this.rendererStore.document.references3d?.[sceneId];
+				const def = this.rendererStore.document.scenes3d?.[sceneId];
 				if (!def) return;
-				this.reference3dDefPreviews.set(sceneId, { ...def, nodes: [...nodes] });
+				this.scene3dDefPreviews.set(sceneId, { ...def, nodes: [...nodes] });
 				this.markDirty("preview");
 			},
-			reference3dRaycastNode: (request) =>
-				getReference3DServiceSync()?.raycastNode(request) ?? null,
-			reference3dSetGuideSource: (elementId) =>
+			scene3dRaycastNode: (request) =>
+				getScene3DServiceSync()?.raycastNode(request) ?? null,
+			scene3dGetNodeBounds: (request) =>
+				getScene3DServiceSync()?.getNodeBounds(request) ?? null,
+			scene3dSetGuideSource: (elementId) =>
 				this.setPerspectiveGuideSource(elementId),
 			getPerspectiveGuides: () => this.perspectiveGuides,
-			reference3dGetFigureRig: (fileUid) =>
-				getReference3DServiceSync()?.getFigureRig(fileUid) ?? null,
+			scene3dGetFigureRig: (fileUid) =>
+				getScene3DServiceSync()?.getFigureRig(fileUid) ?? null,
 			snapElements: (movingIds, originalBounds, dx, dy, zoom) =>
 				this.spatialIndex.snapElements(movingIds, originalBounds, dx, dy, zoom),
 
@@ -3559,6 +3568,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						previousState.currentTool,
 					);
 					this.tool?.onSelectionHandedOver?.();
+					this.openPendingScene3DEditor();
 					previousState = currentSnapshot;
 					return;
 				}
@@ -3595,6 +3605,18 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				previousState = currentSnapshot;
 			}),
 		);
+	}
+
+	/** Open the scene editor a double-click asked for (see scene3dOpenEditor). */
+	private openPendingScene3DEditor(): void {
+		const elementId = this.pendingScene3DEditorElementId;
+		this.pendingScene3DEditorElementId = null;
+		const element = elementId
+			? this.rendererStore.document.objects[elementId]
+			: undefined;
+		if (element && isScene3D(element) && this.tool instanceof Scene3DTool) {
+			this.tool.enterEditorForElement(element);
+		}
 	}
 
 	/** Pastes the system clipboard beside the selection, then hands the pasted
@@ -3801,11 +3823,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.tools.setCurrentTool("select");
 				return;
 			}
-		} else if (toolType === "reference3d") {
+		} else if (toolType === "scene3d") {
 			// The tool works without the runtime until it resolves (renderer
-			// skips reference3d elements; raycast returns null meanwhile).
-			this.requestReference3DService();
-			this.tool = new Reference3DTool(this.toolContext);
+			// skips scene3d elements; raycast returns null meanwhile).
+			this.requestScene3DService();
+			this.tool = new Scene3DTool(this.toolContext);
 		} else if (toolType === "eyedropper") {
 			this.tool = new EyedropperTool(this.toolContext, {
 				onPickForSelection: (target, selectedIds) => {
@@ -4267,6 +4289,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.selection.clear();
 		this.clearAllOverrides();
 		this.rendererStore.editingScopeStack = [];
+		this.scene3dController.endEdit();
 		this.rendererStore.selectedArtboardId = null;
 		this.rendererStore.uiOverlayState.overlays = {};
 		this.rendererStore.toolSession = null;

@@ -1,7 +1,7 @@
 import type { ElementTransform, Vec3 } from "../schema";
 
 /**
- * Shared rotation-ring construction for on-canvas 3D gizmos (Reference3DTool,
+ * Shared rotation-ring construction for on-canvas 3D gizmos (Scene3DTool,
  * the select tool's extrude gizmo). Projection-agnostic: callers supply a
  * `project` callback mapping a 3D point to their 2D frame.
  */

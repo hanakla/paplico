@@ -416,7 +416,7 @@ const TOOL_TYPES_UNDER_TEST = Object.keys({
 	"bucket-fill": true,
 	"stroke-width-edit": true,
 	eyedropper: true,
-	reference3d: true,
+	scene3d: true,
 } satisfies Record<ToolType, true>) as ToolType[];
 
 const SAMPLE_STATE: CompanionState = {

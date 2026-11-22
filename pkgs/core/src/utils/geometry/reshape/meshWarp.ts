@@ -31,8 +31,8 @@ import {
 	type MeshGeometryVertex,
 	type Path,
 	type Point,
-	type Reference3DElement,
 	type RepeatObject,
+	type Scene3DElement,
 	type TextElement,
 	type Vec2,
 } from "../../../schema";
@@ -553,10 +553,8 @@ function srcParameterOnEdge(src: Point, from: Point, to: Point): number | null {
  */
 export function isMeshWarpPassthrough(
 	el: AnyArtObject,
-): el is BlendObject | RepeatObject | Reference3DElement {
-	return (
-		el.type === "blend" || el.type === "repeat" || el.type === "reference3d"
-	);
+): el is BlendObject | RepeatObject | Scene3DElement {
+	return el.type === "blend" || el.type === "repeat" || el.type === "scene3d";
 }
 
 /** Dependencies for warping a mesh container's children into transients. */
@@ -619,7 +617,7 @@ const IMAGE_WARP_GRID_MAX_SEGMENTS = 64;
  * glyphs) is baked through composed child transforms and mapped point-by-point
  * through the cage's Coons warp; images tessellate into a warped texture grid
  * (see MeshWarpResolution.imageWarpGrids); nested mesh containers compose
- * (inner warp first, then the outer one). Blend / Repeat / Reference3D
+ * (inner warp first, then the outer one). Blend / Repeat / Scene3D
  * children pass through unwarped.
  *
  * Transient ids are `${mesh.id}::warp::…` so per-element GPU caches never

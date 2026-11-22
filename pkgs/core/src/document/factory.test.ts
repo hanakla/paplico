@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { isReference3D } from "../schema";
-import {
-	createDefaultLineart3DParams,
-	createReference3DElement,
-} from "./factory";
+import { isScene3D } from "../schema";
+import { createDefaultLineart3DParams, createScene3DElement } from "./factory";
 
-describe("createReference3DElement", () => {
+describe("createScene3DElement", () => {
 	const rect = { sceneId: "scene-1", x: 0, y: 0, width: 400, height: 300 };
 
 	it("should create a lineart element with the default oblique camera", () => {
-		const element = createReference3DElement(rect);
+		const element = createScene3DElement(rect);
 
-		expect(element.type).toBe("reference3d");
-		expect(element.id).toMatch(/^reference3d-/);
+		expect(element.type).toBe("scene3d");
+		expect(element.id).toMatch(/^scene3d-/);
 		expect(element.sceneId).toBe("scene-1");
 		expect(element.opacity).toBe(1);
 		expect(element.blendMode).toBe("normal");
@@ -46,13 +43,13 @@ describe("createReference3DElement", () => {
 	});
 
 	it("should mint a unique id per element", () => {
-		expect(createReference3DElement(rect).id).not.toBe(
-			createReference3DElement(rect).id,
+		expect(createScene3DElement(rect).id).not.toBe(
+			createScene3DElement(rect).id,
 		);
 	});
 
 	it("should accept overrides for camera and displayMode", () => {
-		const element = createReference3DElement({
+		const element = createScene3DElement({
 			...rect,
 			displayMode: "flat",
 			camera: {
@@ -69,11 +66,11 @@ describe("createReference3DElement", () => {
 		expect(element.camera.orthoHeight).toBe(5);
 	});
 
-	it("should be recognized by the isReference3D type guard", () => {
-		const element = createReference3DElement(rect);
-		expect(isReference3D(element)).toBe(true);
+	it("should be recognized by the isScene3D type guard", () => {
+		const element = createScene3DElement(rect);
+		expect(isScene3D(element)).toBe(true);
 		expect(
-			isReference3D({
+			isScene3D({
 				id: "p1",
 				type: "path",
 				opacity: 1,

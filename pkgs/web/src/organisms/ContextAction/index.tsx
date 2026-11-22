@@ -35,7 +35,7 @@ import { EyedropperCandidateActions } from "./EyedropperCandidateActions";
 import { GradientStopActions } from "./GradientStopActions";
 import { GradientTargetFillActions } from "./GradientTargetFillActions";
 import { MoreActionsMenu } from "./MoreActionsMenu";
-import { Reference3DNodeActions } from "./Reference3DNodeActions";
+import { Scene3DNodeActions } from "./Scene3DNodeActions";
 import { StrokeWidthEditTargetToggle } from "./StrokeWidthEditTargetToggle";
 import { TextEditActions } from "./TextEditActions";
 import { TextStyleActions } from "./TextStyleActions";
@@ -77,18 +77,17 @@ function ContextActionsOverlayInner({
 	const elementBounds = snap.selectionBounds;
 	// Node selected inside an edited 3D scene: the bar anchors to the scene
 	// element and shows node actions only.
-	const reference3dNode =
-		snap.reference3dEditingElementId != null &&
-		snap.reference3dSelectedNodeId != null
-			? snap.document.objects[snap.reference3dEditingElementId]
+	const scene3dNode =
+		snap.scene3dEditingElementId != null && snap.scene3dSelectedNodeId != null
+			? snap.document.objects[snap.scene3dEditingElementId]
 			: null;
-	const reference3dNodeBounds =
-		reference3dNode?.type === "reference3d"
+	const scene3dNodeBounds =
+		scene3dNode?.type === "scene3d"
 			? {
-					minX: reference3dNode.x - reference3dNode.width / 2,
-					minY: reference3dNode.y - reference3dNode.height / 2,
-					maxX: reference3dNode.x + reference3dNode.width / 2,
-					maxY: reference3dNode.y + reference3dNode.height / 2,
+					minX: scene3dNode.x - scene3dNode.width / 2,
+					minY: scene3dNode.y - scene3dNode.height / 2,
+					maxX: scene3dNode.x + scene3dNode.width / 2,
+					maxY: scene3dNode.y + scene3dNode.height / 2,
 				}
 			: null;
 	const selectedArtboardId = snap.selectedArtboardId;
@@ -99,18 +98,15 @@ function ContextActionsOverlayInner({
 		? getArtboardBounds(selectedArtboard)
 		: null;
 	const isTextEditing = uiSnap.textEditState.isEditing;
-	const isReference3DNodeContext = reference3dNodeBounds != null;
+	const isScene3DNodeContext = scene3dNodeBounds != null;
 
 	// While a scene node is selected, the bar shows node actions only — the
 	// general element actions are suppressed even if a selection lingers.
 	const hasElementSelection =
-		!isReference3DNodeContext &&
-		selectedIds.length > 0 &&
-		elementBounds != null;
+		!isScene3DNodeContext && selectedIds.length > 0 && elementBounds != null;
 	const hasArtboardSelection =
-		!isReference3DNodeContext && selectedArtboardId && artboardBounds;
-	const hasSingleSelection =
-		!isReference3DNodeContext && selectedIds.length === 1;
+		!isScene3DNodeContext && selectedArtboardId && artboardBounds;
+	const hasSingleSelection = !isScene3DNodeContext && selectedIds.length === 1;
 	const selectedElements = useSelectedElements(store);
 	const toolSnap = useSnapshot(paplico.tools.state);
 	// The gradient tool's bar stays on gradient editing: arranging, duplicating,
@@ -119,23 +115,23 @@ function ContextActionsOverlayInner({
 	// Gradient tool with a single element selected: the stop-scoped actions
 	// stay visible for the whole session.
 	const isGradientToolContext =
-		!isReference3DNodeContext &&
+		!isScene3DNodeContext &&
 		!isTextEditing &&
 		isGradientTool &&
 		hasSingleSelection;
 	// Cutting reaches any editable path, not only the selected one, so it needs
 	// no selection of its own beyond what already keeps the bar on screen.
 	const isPathEditToolContext =
-		!isReference3DNodeContext &&
+		!isScene3DNodeContext &&
 		!isTextEditing &&
 		toolSnap.currentTool === "path-edit";
 	const isStrokeWidthEditToolContext =
-		!isReference3DNodeContext &&
+		!isScene3DNodeContext &&
 		!isTextEditing &&
 		toolSnap.currentTool === "stroke-width-edit" &&
 		hasSingleSelection;
 	const hasFillOrStrokeInSelection =
-		!isReference3DNodeContext &&
+		!isScene3DNodeContext &&
 		selectedElements.some((el) =>
 			localAppearances(el.filters).some(
 				(f) => f.processor === "fill" || f.processor === "stroke",
@@ -145,7 +141,7 @@ function ContextActionsOverlayInner({
 	const isGuide = (el: (typeof selectedElements)[number]) =>
 		selection.findGuideOwnerId(el.id) !== null;
 	const hasOutlinableInSelection =
-		!isReference3DNodeContext &&
+		!isScene3DNodeContext &&
 		selectedElements.some(
 			(el) => !isGuide(el) && (el.type === "text" || canOutlineStrokes(el)),
 		);
@@ -234,8 +230,8 @@ function ContextActionsOverlayInner({
 		};
 	}, []);
 
-	const bounds = reference3dNodeBounds
-		? reference3dNodeBounds
+	const bounds = scene3dNodeBounds
+		? scene3dNodeBounds
 		: hasArtboardSelection
 			? artboardBounds
 			: hasElementSelection
@@ -339,9 +335,9 @@ function ContextActionsOverlayInner({
 					}}
 				/>
 			)}
-			{isReference3DNodeContext && <Reference3DNodeActions />}
-			{!isReference3DNodeContext && isTextEditing && <TextEditActions />}
-			{!isReference3DNodeContext &&
+			{isScene3DNodeContext && <Scene3DNodeActions />}
+			{!isScene3DNodeContext && isTextEditing && <TextEditActions />}
+			{!isScene3DNodeContext &&
 				!isTextEditing &&
 				!isGradientTool &&
 				hasElementSelection &&
@@ -349,7 +345,7 @@ function ContextActionsOverlayInner({
 				selectedElements.every((element) => element.type === "text") && (
 					<TextStyleActions />
 				)}
-			{!isReference3DNodeContext && !isTextEditing && (
+			{!isScene3DNodeContext && !isTextEditing && (
 				<ElementActions
 					selectedIds={selectedIds}
 					selectedElements={selectedElements}
@@ -395,7 +391,7 @@ function ContextActionsOverlayInner({
 					meshWarpIdsInSelection={meshWarpIdsInSelection}
 				/>
 			)}
-			{!isReference3DNodeContext && !isTextEditing && !isGradientTool && (
+			{!isScene3DNodeContext && !isTextEditing && !isGradientTool && (
 				<Tooltip content={t("contextActions.delete")} side="bottom">
 					<IconButton
 						$size="md"

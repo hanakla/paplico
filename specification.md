@@ -185,7 +185,7 @@ interface Document {
 	rasterizationDpi?: number;   // フィルタのラスタライズ解像度。72 で 1 texel = 1 world px
 	units: LengthUnit;           // "px" | "pt" | "mm" | "cm" | "in"。表示と入力だけに使う。座標は常にワールド単位
 	defs?: Record<string, DefEntry>;       // キャンバスの外に置く定義。pattern と vector-brush
-	references3d?: Record<string, Reference3DDef>; // 3D リファレンスのシーン。ノードは primitive、figure、mesh
+	scenes3d?: Record<string, Scene3DDef>; // 3D リファレンスのシーン。ノードは primitive、figure、mesh
 }
 
 interface Layer {
@@ -239,7 +239,7 @@ interface DefEntry {
 | `MeshArtObject` | `"mesh"` | ケージで中身を非破壊にゆがめるコンテナ。 |
 | `BlendObject` | `"blend"` | オブジェクトの間を補間した形を描く。 |
 | `RepeatObject` | `"repeat"` | ソース要素を繰り返し並べる。 |
-| `Reference3DElement` | `"reference3d"` | 3D シーンを参照して下絵にする。 |
+| `Scene3DElement` | `"scene3d"` | 3D シーンを参照して下絵にする。 |
 
 各型の主なフィールドは次のとおり。
 
@@ -307,7 +307,7 @@ interface DefEntry {
 - `mode`：`"grid"`、`"radial"`、`"mirror"` のどれか。
 - `grid` / `radial` / `mirror`：各モードのパラメータ。モードを切り替えても、3つとも常に保持する。
 
-**Reference3DElement**
+**Scene3DElement**
 
 - `sceneId`
 - `camera`
@@ -896,7 +896,7 @@ interface Tool {
 
 **ツール一覧：16種**
 
-> `pen` / `path` / `path-edit` / `select` / `eraser` / `shape` / `text` / `gradient` / `mesh-deform` / `free-transform` / `skew` / `artboard` / `bucket-fill` / `eyedropper` / `stroke-width-edit` / `reference3d`
+> `pen` / `path` / `path-edit` / `select` / `eraser` / `shape` / `text` / `gradient` / `mesh-deform` / `free-transform` / `skew` / `artboard` / `bucket-fill` / `eyedropper` / `stroke-width-edit` / `scene3d`
 
 ツールは、エンジンを直接参照しない。操作は、すべて `ToolContext` を通す。`ToolContext` は、ツールがエンジンに頼むことをコールバックとしてまとめたものである。対象は、ドキュメントの変更、選択、ヒットテスト、スナップ、オーバーレイ、テキスト編集、ビューポートなどである。
 
@@ -917,7 +917,7 @@ interface Tool {
   - 下限は0.1である。上限は `toolSettings.maxZoomScale` である。
   - `maxZoomScale` のエンジンの既定は640である。アプリは `appConfig.maxZoomScale` を渡す。アプリの既定は100である。設定できる範囲は1〜640である。
 - **ホイール**：修飾キーがなければ、deltaX と deltaY でパンする。回転にも対応する。
-- **2本指ジェスチャ**：移動量をサンプルして、pan-zoom か回転かを判別する。アクティブツールが `onTouchGesture` の `"start"` で true を返したら、そのジェスチャはツールが占有する。これを使うのは、Reference3DTool のカメラ操作である。
+- **2本指ジェスチャ**：移動量をサンプルして、pan-zoom か回転かを判別する。アクティブツールが `onTouchGesture` の `"start"` で true を返したら、そのジェスチャはツールが占有する。これを使うのは、Scene3DTool のカメラ操作である。
 - **マルチフィンガータップ**：2本指タップで Undo する。3本指タップで Redo する。
 - **Alt+ドラッグ**：pen と eraser のとき、ブラシサイズを変える。
 - **パームリジェクション**：
@@ -1045,7 +1045,11 @@ CtrlOrMeta は、mac では Cmd、Windows では Ctrl である。
 - StrokeWidthEditTool：`Delete` か `Backspace` で、選択した幅ポイントを削除する。
 - MeshDeformTool：`Enter` で適用する。`Delete` か `Backspace` で、選択したハンドルを削除する。
 - SkewTool：`Enter` で適用する。
-- Reference3DTool：
+- Scene3DTool：
+  - 編集の入り方は2つある。3D ツールで要素をクリックすると、要素の枠の中で編集する。カメラ操作は要素のカメラに書き込む。選択ツールで要素をダブルクリックすると、シーンエディターが開く。シーンエディターは、要素の枠の視界を枠の外まで広げて、キャンバス全体に描く。開いた直後のシーンは、枠内に見えていた位置にそのまま重なる。カメラは要素のカメラの写しから始まり、要素には書き込まない。ノードの編集は、どちらの入り方でも共有のシーン定義に書き込む。
+  - カメラの回転は、選択中のノードを中心にする。ノードを選んでいない時は、カメラの注視点を中心にする。空いた場所のクリックは、ドラッグせずに離した時にノードの選択を外す。
+  - シーンエディターでは、回転の途中で `Shift` を押すと、正面、背面、左右、上、下のうち近い向きに吸着する。押しながらドラッグを始めた場合は平行移動になる。
+  - 操作パネルの「選択物に合わせる」と「全体を収める」は、視線の向きを保ったまま、対象が収まる距離にカメラを動かす。
   - 編集にはモードが2つある。オブジェクトモードでは、シーンのノードを選んで動かす。ポーズモードでは、1体の人形の関節をハンドルで動かす。
   - ポーズモードでは、`1`〜`5` がプリセットポーズである。
   - `Escape` を押すたびに、1段ずつ戻る。順番は、ドラッグの取り消し、ポーズモードからオブジェクトモードへ、ノードの選択解除、編集の終了である。
@@ -1129,7 +1133,7 @@ Y.Doc
 ├─ "brushPresets" (Y.Map<Y.Map>)
 ├─ "appearancePresets" (Y.Map<Y.Map>)
 ├─ "defs"         (Y.Map<Y.Map>)
-└─ "references3d" (Y.Map<Y.Map>)
+└─ "scenes3d" (Y.Map<Y.Map>)
 ```
 
 - local サーバーは、新しいルームを作るときだけ、meta に `id`、`name`、`ownerId` を書く。
@@ -1157,7 +1161,7 @@ Y.Doc
 
 ### Undo/Redo
 
-- Yjs の `UndoManager` を使う。追跡するルートは `[yObjects, yLayers, yArtboards, yDefs, yReferences3d, yAppearancePresets]` である。`captureTimeout` は500ms である。
+- Yjs の `UndoManager` を使う。追跡するルートは `[yObjects, yLayers, yArtboards, yDefs, yScenes3d, yAppearancePresets]` である。`captureTimeout` は500ms である。
 - `createSessionUndoManager(trackedOrigins)` は、編集セッション専用の UndoManager を作る。
   - origin は、Yjs のトランザクションに付けるラベルである。UndoManager は、追跡対象の origin が付いたトランザクションだけを記録する。
   - セッション用の UndoManager は、指定した origin の操作だけを追跡する。メインの UndoManager は、その操作を記録しない。

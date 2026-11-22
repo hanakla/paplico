@@ -288,7 +288,7 @@ export class ExtrudeMeshBaker {
 				return { segments, flatSegments, worldSpace: true };
 			}
 			case "mesh":
-			case "reference3d":
+			case "scene3d":
 			case "repeat":
 				// Not extrudable directly (yet) — no outline.
 				return null;

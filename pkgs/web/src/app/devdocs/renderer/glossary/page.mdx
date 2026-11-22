@@ -433,7 +433,7 @@ GPUに送信済みだがまだ実行完了していないコマンド。テク�
 
 ### 要素 (Element)
 
-ドキュメントを構成する描画オブジェクト。`path`, `group`, `image`, `compound-path`, `text`, `mesh`, `blend`, `repeat`, `reference3d` の9型があり、すべて `ArtObject` 基底インターフェースを継承する。`ElementRenderer` のディスパッチテーブルで型ごとに描画処理が振り分けられる。
+ドキュメントを構成する描画オブジェクト。`path`, `group`, `image`, `compound-path`, `text`, `mesh`, `blend`, `repeat`, `scene3d` の9型があり、すべて `ArtObject` 基底インターフェースを継承する。`ElementRenderer` のディスパッチテーブルで型ごとに描画処理が振り分けられる。
 
 → [エレメントレンダリング](/devdocs/renderer/elements)
 
@@ -481,7 +481,7 @@ GPUに送信済みだがまだ実行完了していないコマンド。テク�
 
 ### ディスパッチテーブル
 
-要素の型に応じて処理関数を振り分けるルックアップテーブル。`ElementRenderer` が持ち、`path`, `image`, `compound-path`, `text`, `mesh`, `blend`, `reference3d` のキーに描画関数を対応付ける。`group` と `repeat` はテーブルに登録されず、CanvasLayer側で処理される。
+要素の型に応じて処理関数を振り分けるルックアップテーブル。`ElementRenderer` が持ち、`path`, `image`, `compound-path`, `text`, `mesh`, `blend`, `scene3d` のキーに描画関数を対応付ける。`group` と `repeat` はテーブルに登録されず、CanvasLayer側で処理される。
 
 → [エレメントレンダリング](/devdocs/renderer/elements#ディスパッチテーブル)
 

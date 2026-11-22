@@ -3,6 +3,7 @@ import type {
 	BoundingBox,
 	Document,
 	RawRGBA,
+	Scene3DCamera,
 	Viewport,
 } from "../schema";
 import type { WorldBoundsCache } from "../utils/geometry/elementBounds";
@@ -83,8 +84,11 @@ export interface FrameRequest {
 	boundsCache?: WorldBoundsCache;
 	editingScopeStack?: string[];
 	/** Element rendered at full opacity while the rest of the document is
-	 *  dimmed (Reference3D edit isolation — same look as group editing). */
+	 *  dimmed (Scene3D edit isolation — same look as group editing). */
 	isolatedElementId?: string | null;
+	/** Camera of the scene editor open on `isolatedElementId`: its scene is
+	 *  drawn over the whole canvas through this camera instead. */
+	scene3dEditorCamera?: Scene3DCamera | null;
 	/** Transient overrides for existing elements (keyed by element ID).
 	 *  Replaces the corresponding entry in document.objects for this frame only. */
 	elementOverrides?: ReadonlyMap<string, AnyArtObject>;
@@ -96,7 +100,7 @@ export interface FrameRequest {
 	disableViewportCulling?: boolean;
 	/** Render only elements with these IDs (for clipboard export). */
 	elementFilter?: ReadonlySet<string>;
-	/** True while rendering to an image export. Reference3D elements not flagged
+	/** True while rendering to an image export. Scene3D elements not flagged
 	 *  `includeInExport` are skipped (drafts stay out of the output). */
 	isExport?: boolean;
 	/** True for a render the target does not count among its own frames: an
@@ -159,12 +163,15 @@ export interface RendererState {
 	maskEditSession: { ownerId: string } | null;
 	/** Active tool session info for React overlays (MeshDeformHintOverlay). */
 	toolSession: ToolSession | null;
-	/** Reference3D element currently being edited (reactive gate for the Reference3D
-	 *  action-panel controls). Mirrors Reference3DController's editing session. */
-	reference3dEditingElementId: string | null;
+	/** Scene3D element currently being edited (reactive gate for the Scene3D
+	 *  action-panel controls). Mirrors Scene3DController's editing session. */
+	scene3dEditingElementId: string | null;
 	/** Selected node inside the edited scene (reactive gate for the node
-	 *  context actions). Mirrors Reference3DController's node selection. */
-	reference3dSelectedNodeId: string | null;
+	 *  context actions). Mirrors Scene3DController's node selection. */
+	scene3dSelectedNodeId: string | null;
+	/** Camera of the open scene editor, null while none is open. Mirrors
+	 *  Scene3DController's editor camera. */
+	scene3dEditorCamera: Scene3DCamera | null;
 	editingScopeStack: string[];
 	selectedArtboardId: string | null;
 	/** Artboard under the last canvas press with any tool, or null when that

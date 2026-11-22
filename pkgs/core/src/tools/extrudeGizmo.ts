@@ -46,7 +46,7 @@ export type ExtrudeGizmoHandle =
 	| "extrude-rotate-z"
 	| "extrude-depth";
 
-/** On-screen ring radius (slightly inside the reference3d gizmo's 78). */
+/** On-screen ring radius (slightly inside the scene3d gizmo's 78). */
 const EXTRUDE_RING_SCREEN_PX = 64;
 /** Depth handle: arrow length and box offset past the back cap (screen px). */
 const DEPTH_ARROW_SCREEN_PX = 26;
@@ -61,19 +61,19 @@ const ROTATE_AXES: ReadonlyArray<{
 		handle: "extrude-rotate-x",
 		axisIndex: 0,
 		dir: [1, 0, 0],
-		color: UI_THEME.colors.reference3dAxisX,
+		color: UI_THEME.colors.scene3dAxisX,
 	},
 	{
 		handle: "extrude-rotate-y",
 		axisIndex: 1,
 		dir: [0, 1, 0],
-		color: UI_THEME.colors.reference3dAxisY,
+		color: UI_THEME.colors.scene3dAxisY,
 	},
 	{
 		handle: "extrude-rotate-z",
 		axisIndex: 2,
 		dir: [0, 0, 1],
-		color: UI_THEME.colors.reference3dAxisZ,
+		color: UI_THEME.colors.scene3dAxisZ,
 	},
 ];
 
@@ -268,7 +268,7 @@ export function buildExtrudeGizmoPrimitives(
 ): UIPrimitive[] {
 	const primitives: UIPrimitive[] = [];
 	const colorFor = (handle: ExtrudeGizmoHandle, base: RGBA): RGBA =>
-		hovered === handle ? UI_THEME.colors.reference3dHandleHover : base;
+		hovered === handle ? UI_THEME.colors.scene3dHandleHover : base;
 
 	for (const { handle, axisIndex, color } of ROTATE_AXES) {
 		const points = extrudeRingPoints(frame, axisIndex, zoom);
@@ -298,7 +298,7 @@ export function buildExtrudeGizmoPrimitives(
 				y1: back.y,
 				x2: tip.x,
 				y2: tip.y,
-				color: colorFor("extrude-depth", UI_THEME.colors.reference3dPlaneFill),
+				color: colorFor("extrude-depth", UI_THEME.colors.scene3dPlaneFill),
 				width: 2,
 				headLength: { screen: 9 },
 				headWidth: { screen: 7 },

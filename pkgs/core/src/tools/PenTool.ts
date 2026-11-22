@@ -1,11 +1,11 @@
 import { withStoredBrushSize } from "../brush/access";
 import { BrushStrokeSession } from "../brush/BrushStrokeSession";
 import { createIdentityTransform } from "../document/factory";
-import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
 import { StrokeWidthProfileBuilder } from "../renderer/canvas/pipeline/brush/strokeHalfWidth";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import type { UIPrimitive } from "../renderer/ui/primitives";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
+import type { PerspectiveGuideData } from "../scene3d/perspective/vanishingPoints";
 import {
 	type BezierPoint,
 	type CubicBezierSegment,

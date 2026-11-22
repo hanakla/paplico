@@ -58,7 +58,7 @@ in the pre-pass filter path. The handler owns one driver per canvas:
 
 - `buildOutline` exhaustively switches over **path / group / text / blend** (a
   `neverReached` default forces a decision when a new element type is added;
-  compound-path/image/mesh/reference3d return null). A group extrudes the
+  compound-path/image/mesh/scene3d return null). A group extrudes the
   world-space union of every descendant's outline; its albedo is baked by
   re-rendering the children.
 - Mesh: `renderer/geometry/extrudeMesh.ts` (pure CPU — flatten →

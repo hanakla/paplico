@@ -23,8 +23,8 @@ import {
 	type Extrude3DParams,
 	IDENTITY_TRANSFORM,
 	isContainer,
-	isReference3D,
 	isRepeat,
+	isScene3D,
 	isText,
 	type RepeatObject,
 	type Solid3DBaseParams,
@@ -1589,8 +1589,8 @@ export class SelectTool implements Tool {
 				return;
 			}
 
-			if (isReference3D(element)) {
-				this.context.reference3dEdit(element);
+			if (isScene3D(element)) {
+				this.context.scene3dOpenEditor(element);
 				return;
 			}
 
@@ -1605,8 +1605,8 @@ export class SelectTool implements Tool {
 				this.context.textEdit(element);
 				return;
 			}
-			if (isReference3D(element)) {
-				this.context.reference3dEdit(element);
+			if (isScene3D(element)) {
+				this.context.scene3dOpenEditor(element);
 				return;
 			}
 			// Containers and single elements alike enter an editing scope.

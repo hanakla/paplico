@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import type { Reference3DNode, Transform3D } from "../../schema";
+import type { Scene3DNode, Transform3D } from "../../schema";
 
-type PrimitiveNode = Extract<Reference3DNode, { kind: "primitive" }>;
+type PrimitiveNode = Extract<Scene3DNode, { kind: "primitive" }>;
 
 /** Neutral grey used by all primitive meshes (flat mode; lineart overrides materials). */
 const PRIMITIVE_COLOR = 0xcccccc;

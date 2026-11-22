@@ -560,7 +560,7 @@ pkgs/web/
     ├── locales/           # i18n translations (en.ts, ja.ts)
     ├── organisms/         # Page-level compositions (Canvas, Toolbar, LayerPanel, etc.)
     │   ├── ContextAction/     # Selection-time floating action bar (index.tsx: ContextActionsOverlay, ContextActionsBar.tsx: bar presentation/drag, ElementActions.tsx: structural ops as IconButtons, MoreActionsMenu.tsx: overflow "…" Menu.Item list, TextEditActions.tsx)
-    │   └── ActionsPanel/      # Right-side tool settings panel (index.tsx, TransformControls.tsx, BlendOperations.tsx, RepeatControls.tsx, Reference3DToolControls.tsx)
+    │   └── ActionsPanel/      # Right-side tool settings panel (index.tsx, TransformControls.tsx, BlendOperations.tsx, RepeatControls.tsx, Scene3DToolControls.tsx)
     ├── contexts/          # React contexts (PaplicoContext)
     ├── stores/            # Valtio stores (documentStore, uiStore, appSettings)
     └── utils/             # App-level utilities (hooks.ts contains domain-independent hooks only, testDocument)

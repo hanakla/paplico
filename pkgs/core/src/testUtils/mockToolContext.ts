@@ -4,6 +4,7 @@ import type { PaplicoCommands } from "../PaplicoCommands";
 import { hitTestOverlays } from "../renderer/ui/hitTest";
 import type { OverlayKey } from "../renderer/ui/overlayKeys";
 import type { UIOverlay } from "../renderer/ui/primitives";
+import type { Scene3DBounds } from "../scene3d";
 import type { PathEditMode } from "../tools/PathEditTool";
 import { createDefaultTextStyle } from "../tools/TextTool";
 import { ToolContext, type ToolContextOptions } from "../tools/ToolContext";
@@ -50,7 +51,7 @@ export function createMockToolContext(
 
 	const base: ToolContextOptions = {
 		textToolController: null,
-		reference3dController: null,
+		scene3dController: null,
 
 		strokeComplete: vi.fn(),
 		previewUpdate: vi.fn(),
@@ -109,18 +110,19 @@ export function createMockToolContext(
 		addObjectToDocument: vi.fn(),
 		duplicateElementsByIds: vi.fn(() => []),
 		textEdit: vi.fn(),
-		reference3dEdit: vi.fn(),
-		reference3dExitEdit: vi.fn(),
-		reference3dCreate: vi.fn(() => null),
-		reference3dGetDef: vi.fn(() => null),
-		reference3dAddNode: vi.fn(),
-		reference3dCommitNode: vi.fn(),
-		reference3dPreviewCamera: vi.fn(),
-		reference3dPreviewNodes: vi.fn(),
-		reference3dRaycastNode: vi.fn(() => null),
-		reference3dSetGuideSource: vi.fn(),
+		scene3dOpenEditor: vi.fn(),
+		scene3dExitEdit: vi.fn(),
+		scene3dCreate: vi.fn(() => null),
+		scene3dGetDef: vi.fn(() => null),
+		scene3dAddNode: vi.fn(),
+		scene3dCommitNode: vi.fn(),
+		scene3dPreviewCamera: vi.fn(),
+		scene3dPreviewNodes: vi.fn(),
+		scene3dRaycastNode: vi.fn(() => null),
+		scene3dGetNodeBounds: vi.fn((): Scene3DBounds | null => null),
+		scene3dSetGuideSource: vi.fn(),
 		getPerspectiveGuides: vi.fn(() => null),
-		reference3dGetFigureRig: vi.fn(() => null),
+		scene3dGetFigureRig: vi.fn(() => null),
 		snapElements: vi.fn(
 			(
 				_movingElementIds,

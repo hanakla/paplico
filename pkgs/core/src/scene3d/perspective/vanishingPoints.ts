@@ -1,4 +1,4 @@
-import type { ElementTransform, Reference3DCamera, Vec3 } from "../../schema";
+import type { ElementTransform, Scene3DCamera, Vec3 } from "../../schema";
 import {
 	cameraBasis,
 	dot3,
@@ -33,7 +33,7 @@ type PerspectiveAxisGuide =
 	| { axis: WorldAxis3; kind: "infinite"; direction: Vec2 };
 
 export interface PerspectiveGuideData {
-	/** Reference3DElement the guides were derived from. */
+	/** Scene3DElement the guides were derived from. */
 	elementId: string;
 	/** Per-world-axis guides. Degenerate axes (no direction in view) are omitted. */
 	axes: PerspectiveAxisGuide[];
@@ -43,7 +43,7 @@ export interface PerspectiveGuideData {
 
 interface PerspectiveGuideInput {
 	elementId: string;
-	camera: Reference3DCamera;
+	camera: Scene3DCamera;
 	/** Element placement rect (untransformed local canvas coordinates). */
 	localRect: LocalRect;
 	/** Composed ancestor ∘ self transform (pivot = local rect center). */

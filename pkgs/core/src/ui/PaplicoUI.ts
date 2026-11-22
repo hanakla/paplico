@@ -824,7 +824,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			tool.name === "path" ||
 			tool.name === "text" ||
 			tool.name === "gradient" ||
-			tool.name === "reference3d" ||
+			tool.name === "scene3d" ||
 			tool.name === "artboard" ||
 			tool.name === "shape";
 
@@ -1155,7 +1155,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			rect.height,
 		);
 
-		// Tools get first shot at the two-finger gesture (e.g. Reference3D camera
+		// Tools get first shot at the two-finger gesture (e.g. Scene3D camera
 		// pan/dolly inside the edited scene) — mirrors the onWheel priority.
 		const tool = this.callbacks.getTool();
 		if (
@@ -1275,7 +1275,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 
 		const viewport = this.callbacks.getViewport();
 
-		// Tools may consume wheel input first (e.g. Reference3D camera dolly),
+		// Tools may consume wheel input first (e.g. Scene3D camera dolly),
 		// but only in the active view; elsewhere the wheel only moves the view.
 		const tool = this.callbacks.getTool();
 		if (

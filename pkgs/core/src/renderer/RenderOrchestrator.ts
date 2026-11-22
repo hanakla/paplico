@@ -44,7 +44,7 @@ import {
 } from "./canvas/CanvasLayer.helpers";
 import { RENDER_SAMPLE_COUNT } from "./canvas/CanvasLayerTypes";
 import { RenderCacheManager } from "./canvas/caches/RenderCacheManager";
-import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElementRenderer";
+import type { Scene3DRenderContext } from "./canvas/elements/Scene3DElementRenderer";
 import {
 	DEFAULT_GPU_CACHE_BUDGET_BYTES,
 	imageTextureBudgetBytes,
@@ -312,9 +312,8 @@ export class RenderOrchestrator {
 	private _onTextBoundsComputed:
 		| ((elementId: string, bounds: WorldBBox, localBounds: LocalBBox) => void)
 		| null = null;
-	private _reference3dContextProvider:
-		| (() => Reference3DRenderContext | null)
-		| null = null;
+	private _scene3dContextProvider: (() => Scene3DRenderContext | null) | null =
+		null;
 
 	// Pending device re-initialization (HDR switch, device recovery)
 	#pendingDeviceReInit: Promise<boolean> | null = null;
@@ -587,10 +586,8 @@ export class RenderOrchestrator {
 			canvasLayer.setOnRequestPartialRender(this._onRequestPartialRender);
 		if (this._onTextBoundsComputed && !isolated)
 			canvasLayer.setOnTextBoundsComputed(this._onTextBoundsComputed);
-		if (this._reference3dContextProvider)
-			canvasLayer.setReference3DContextProvider(
-				this._reference3dContextProvider,
-			);
+		if (this._scene3dContextProvider)
+			canvasLayer.setScene3DContextProvider(this._scene3dContextProvider);
 		// GPU textures don't survive device re-init (HDR switch, device loss
 		// recovery) — re-upload the soft proof LUT from the CPU-side copy.
 		if (this.softProofLut) canvasLayer.setSoftProofLut(this.softProofLut);
@@ -762,6 +759,7 @@ export class RenderOrchestrator {
 			request,
 			this.profiler,
 		);
+		td.canvasLayer.encodeScene3DEditorView(encoder, canvasTexture, request);
 
 		try {
 			td.uiLayer.render(
@@ -879,13 +877,13 @@ export class RenderOrchestrator {
 		}
 	}
 
-	/** Install the Reference3D subsystem accessor on all (and future) targets. */
-	public setReference3DContextProvider(
-		provider: () => Reference3DRenderContext | null,
+	/** Install the Scene3D subsystem accessor on all (and future) targets. */
+	public setScene3DContextProvider(
+		provider: () => Scene3DRenderContext | null,
 	): void {
-		this._reference3dContextProvider = provider;
+		this._scene3dContextProvider = provider;
 		for (const td of this.targets.values()) {
-			td.canvasLayer.setReference3DContextProvider(provider);
+			td.canvasLayer.setScene3DContextProvider(provider);
 		}
 	}
 
@@ -1021,7 +1019,7 @@ export class RenderOrchestrator {
 		await Promise.all(
 			textElements.map((el) => td.canvasLayer.elements.ensureTextPaths(el)),
 		);
-		await td.canvasLayer.elements.ensureReference3DTextures(
+		await td.canvasLayer.elements.ensureScene3DTextures(
 			opts.document,
 			opts.elementFilter,
 		);
@@ -1910,7 +1908,7 @@ export class RenderOrchestrator {
 	public disposeCanvasTarget(target: CanvasTarget): void {
 		const td = this.targets.get(target.id);
 		if (td) {
-			td.canvasLayer.elements.destroyReference3DTextures();
+			td.canvasLayer.elements.destroyScene3DTextures();
 			td.canvasLayer.destroy();
 			td.uniformBuffer.destroy();
 			td.uiLayer.destroy();
@@ -1972,7 +1970,7 @@ export class RenderOrchestrator {
 		this.initialized = false;
 
 		for (const td of this.targets.values()) {
-			td.canvasLayer.elements.destroyReference3DTextures();
+			td.canvasLayer.elements.destroyScene3DTextures();
 			td.canvasLayer.destroy();
 			td.uniformBuffer.destroy();
 			td.uiLayer.destroy();

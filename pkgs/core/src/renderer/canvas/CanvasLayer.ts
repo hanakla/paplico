@@ -55,6 +55,7 @@ import {
 	isMesh,
 	isPath,
 	isRepeat,
+	isScene3D,
 	type Path,
 	type RawRGBA,
 	type StrokeAppearance,
@@ -83,6 +84,7 @@ import {
 	composeAncestorMatrix,
 	getVisibleWorldBounds,
 	placeElement,
+	screenToWorld,
 	transformBounds,
 	worldToScreen,
 } from "../../utils/geometry/space/coordinates";
@@ -149,7 +151,7 @@ import type { RenderCacheManager } from "./caches/RenderCacheManager";
 import { WashResultCache } from "./caches/WashResultCache";
 import { ElementRenderer } from "./elements/ElementRenderer";
 import { ElementVertexBuffer } from "./elements/ElementVertexBuffer";
-import type { Reference3DRenderContext } from "./elements/Reference3DElementRenderer";
+import type { Scene3DRenderContext } from "./elements/Scene3DElementRenderer";
 import {
 	DEFAULT_GPU_CACHE_BUDGET_BYTES,
 	filteredElementBudgetBytes,
@@ -597,10 +599,9 @@ export class CanvasLayer {
 	/** Whether images loaded since the cache drew them still wait for a
 	 *  frame that redraws them. */
 	private imageRedrawPending = false;
-	/** Reference3D subsystem access, injected post-construction by the orchestrator. */
-	private reference3dContextProvider:
-		| (() => Reference3DRenderContext | null)
-		| null = null;
+	/** Scene3D subsystem access, injected post-construction by the orchestrator. */
+	private scene3dContextProvider: (() => Scene3DRenderContext | null) | null =
+		null;
 	private clipMaskAtlas!: ClipMaskAtlas;
 	/** Dedicated clip-mask atlas used only for export/offscreen renders, so an
 	 *  export never mutates or destroys the interactive atlas's textures (the
@@ -761,6 +762,7 @@ export class CanvasLayer {
 	private renderState: RenderState = {
 		editingScopeStack: [],
 		isolatedElementId: null,
+		scene3dEditorCamera: null,
 		isExport: false,
 		boundsCache: null,
 		staleWorldBoundsIds: null,
@@ -1122,7 +1124,7 @@ export class CanvasLayer {
 			getParentGroupMap: () => this.elementHierarchy.parentMap,
 			resolvePatternTexture: (defId: string) =>
 				this.resolvePatternTexture(defId),
-			getReference3DContext: () => this.reference3dContextProvider?.() ?? null,
+			getScene3DContext: () => this.scene3dContextProvider?.() ?? null,
 			getRasterScale: () => this.getRasterScale(),
 		});
 
@@ -1370,11 +1372,11 @@ export class CanvasLayer {
 		};
 	}
 
-	/** Install the Reference3D subsystem accessor (null provider = reference3d skipped). */
-	public setReference3DContextProvider(
-		provider: () => Reference3DRenderContext | null,
+	/** Install the Scene3D subsystem accessor (null provider = scene3d skipped). */
+	public setScene3DContextProvider(
+		provider: () => Scene3DRenderContext | null,
 	): void {
-		this.reference3dContextProvider = provider;
+		this.scene3dContextProvider = provider;
 	}
 
 	public setOnTextBoundsComputed(
@@ -1996,6 +1998,56 @@ export class CanvasLayer {
 	}
 
 	/**
+	 * Draw the open scene editor's view over the whole canvas, on top of the
+	 * frame `render` just encoded for `request`. Frees the view while no
+	 * editor is open.
+	 */
+	public encodeScene3DEditorView(
+		encoder: GPUCommandEncoder,
+		canvasTexture: GPUTexture,
+		request: FrameRequest,
+	): void {
+		const camera = request.scene3dEditorCamera;
+		const element = request.isolatedElementId
+			? request.document.objects[request.isolatedElementId]
+			: undefined;
+		const viewport = this.viewportState.current;
+		if (!camera || !element || !isScene3D(element) || !viewport) {
+			this.elements.releaseScene3DEditorView();
+			return;
+		}
+
+		const { width, height } = this.viewportState;
+		const pass = encoder.beginRenderPass({
+			label: "Scene3D Editor View",
+			colorAttachments: [
+				{
+					view: canvasTexture.createView(),
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+		});
+		const corner = (x: number, y: number) =>
+			screenToWorld(x, y, viewport, width, height);
+		this.elements.renderScene3DEditorView(
+			pass,
+			element,
+			this.activeElementsMap ??
+				new Map(Object.entries(request.document.objects)),
+			camera,
+			[
+				corner(0, 0),
+				corner(width, 0),
+				corner(width, height),
+				corner(0, height),
+			],
+			(viewport.zoom * canvasTexture.width) / width,
+		);
+		pass.end();
+	}
+
+	/**
 	 * Toggle pixel preview: render the document at the rasterization scale
 	 * (Document.rasterizationDpi / 72) instead of the viewport zoom and present
 	 * it with nearest sampling, so the raster grid is visible when zoomed in.
@@ -2090,6 +2142,7 @@ export class CanvasLayer {
 		request: FrameRequest,
 		profiler?: GPUTimingProfiler | null,
 	): CanvasFrameTransaction | null {
+		this.renderState.scene3dEditorCamera = request.scene3dEditorCamera ?? null;
 		const {
 			document,
 			editingScopeStack,
@@ -4715,7 +4768,7 @@ export class CanvasLayer {
 	 * one named unit; its frame-local inputs arrive through {@link ctx}.
 	 */
 	private encodeIsolationDim(ctx: IsolationDimContext): void {
-		// Composite-level editing isolation dimming (editing scope / reference3d
+		// Composite-level editing isolation dimming (editing scope / scene3d
 		// edit): dim everything, then re-render the editing subtree at full
 		// opacity on top.
 		const editingScopeId = this.renderState.editingScopeStack.at(-1);
@@ -4831,8 +4884,11 @@ export class CanvasLayer {
 						ctx.mainCompositeContext,
 						ctx.localBoundsCache,
 					);
+				} else if (isolatedElement && this.renderState.scene3dEditorCamera) {
+					// The scene editor draws the scene over the canvas itself (see
+					// encodeScene3DEditorView), so the element stays dimmed.
 				} else if (isolatedElement) {
-					// Reference3D edit isolation: only the edited element pops back to
+					// Scene3D edit isolation: only the edited element pops back to
 					// full opacity (composed with its ancestor groups' opacity).
 					dimPass = this.renderIsolatedElementPass(
 						dimPass,
@@ -4888,7 +4944,7 @@ export class CanvasLayer {
 					);
 				} else if (scopeElement) {
 					// Single-element scope (path, image, text, …): same isolation
-					// treatment as the reference3d isolated element.
+					// treatment as the scene3d isolated element.
 					dimPass = this.renderIsolatedElementPass(
 						dimPass,
 						scopeElement,
@@ -6082,7 +6138,7 @@ export class CanvasLayer {
 					!this.filterCacheFrame.blockedIds.has(elementId) &&
 					!isHost &&
 					this.bakeWithinCacheBudget(bounds, rasterScale) &&
-					!subtreeContainsReference3D(element, elementsMap)
+					!subtreeContainsScene3D(element, elementsMap)
 				) {
 					const deps = expandRenderFilter(new Set([elementId]), elementsMap);
 					if (!setsIntersect(deps, this.filterCacheFrame.overrideIds)) {
@@ -7494,7 +7550,7 @@ export class CanvasLayer {
 	/**
 	 * Re-render a single element at full opacity (composed with all its
 	 * ancestors' opacity) on top of the dimmed capture. Shared by the
-	 * reference3d isolated-element pass and single-element editing scopes.
+	 * scene3d isolated-element pass and single-element editing scopes.
 	 * The transforms buffer holds composed world transforms per element,
 	 * so no parent transform is needed.
 	 */
@@ -10178,15 +10234,15 @@ function bytesPerTexel(format: GPUTextureFormat): number {
 /** Whether an element or any descendant is a 3D reference scene. Their
  *  texture updates arrive from the three.js runtime without any element
  *  delta or paint-hash change, so a cached bake could serve a stale scene. */
-function subtreeContainsReference3D(
+function subtreeContainsScene3D(
 	element: AnyArtObject,
 	elementsMap: Map<string, AnyArtObject>,
 ): boolean {
-	if (element.type === "reference3d") return true;
+	if (element.type === "scene3d") return true;
 	if (!isGroup(element)) return false;
 	return element.childIds.some((childId) => {
 		const child = elementsMap.get(childId);
-		return child != null && subtreeContainsReference3D(child, elementsMap);
+		return child != null && subtreeContainsScene3D(child, elementsMap);
 	});
 }
 

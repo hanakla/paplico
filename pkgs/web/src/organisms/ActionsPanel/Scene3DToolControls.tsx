@@ -1,13 +1,13 @@
 import type {
-	Reference3DCamera,
-	Reference3DElement,
-	Reference3DPrimitiveShape,
+	Scene3DCamera,
+	Scene3DElement,
+	Scene3DPrimitiveShape,
 	Vec3,
 } from "@paplico/core/schema";
 import {
 	getCameraDistance,
 	getCameraOrbitAngles,
-	Reference3DTool,
+	Scene3DTool,
 } from "@paplico/core/tools";
 import {
 	Box,
@@ -30,58 +30,61 @@ import { usePaplico } from "@/contexts/PaplicoContext";
 import { FileSystem } from "@/infra/filesystem";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
+import { NumInput } from "./TransformControls";
 
 const PRIMITIVES: Array<{
-	shape: Reference3DPrimitiveShape;
+	shape: Scene3DPrimitiveShape;
 	icon: LucideIcon;
 	labelKey: LocalizeKeys;
 }> = [
-	{ shape: "box", icon: Box, labelKey: "actionsPanel.reference3dBox" },
-	{ shape: "sphere", icon: Circle, labelKey: "actionsPanel.reference3dSphere" },
+	{ shape: "box", icon: Box, labelKey: "actionsPanel.scene3dBox" },
+	{ shape: "sphere", icon: Circle, labelKey: "actionsPanel.scene3dSphere" },
 	{
 		shape: "cylinder",
 		icon: Cylinder,
-		labelKey: "actionsPanel.reference3dCylinder",
+		labelKey: "actionsPanel.scene3dCylinder",
 	},
-	{ shape: "cone", icon: Cone, labelKey: "actionsPanel.reference3dCone" },
-	{ shape: "plane", icon: Square, labelKey: "actionsPanel.reference3dPlane" },
+	{ shape: "cone", icon: Cone, labelKey: "actionsPanel.scene3dCone" },
+	{ shape: "plane", icon: Square, labelKey: "actionsPanel.scene3dPlane" },
 ];
 
 /** Default light direction, mirrored from the service's shadow rig. */
 const DEFAULT_LIGHT_DIR: Vec3 = [6, 10, 4];
 
-export const Reference3DToolControls = memo(function Reference3DToolControls() {
+export const Scene3DToolControls = memo(function Scene3DToolControls() {
 	const t = useTranslation();
 	const paplico = usePaplico();
 	const snap = useSnapshot(paplico.uiState);
 
-	const editingId = snap.reference3dEditingElementId;
+	const editingId = snap.scene3dEditingElementId;
 	const element = editingId ? snap.document.objects[editingId] : null;
-	const scene = element?.type === "reference3d" ? element : null;
+	const scene = element?.type === "scene3d" ? element : null;
 
 	const lightDir = (scene?.lightDir ?? DEFAULT_LIGHT_DIR) as Vec3;
 	const lightAzimuth = Math.round(azimuthDegOf(lightDir));
 	const lightElevation = Math.round(elevationDegOf(lightDir));
 	const includeInExport = scene?.includeInExport === true;
 
-	const cameraDistance = scene
-		? getCameraDistance(scene.camera as Reference3DCamera)
-		: 0;
-	const cameraOrbit = scene
-		? getCameraOrbitAngles(scene.camera as Reference3DCamera)
+	// The scene editor moves a camera of its own and leaves the element's alone.
+	const camera = (snap.scene3dEditorCamera ?? scene?.camera) as
+		| Scene3DCamera
+		| undefined;
+	const cameraDistance = camera ? getCameraDistance(camera) : 0;
+	const cameraOrbit = camera
+		? getCameraOrbitAngles(camera)
 		: { yawDeg: 0, pitchDeg: 0 };
 
 	const handleAddPrimitive = useEventCallback(
-		(shape: Reference3DPrimitiveShape) => {
+		(shape: Scene3DPrimitiveShape) => {
 			const tool = paplico.tools.getCurrentTool();
-			if (tool instanceof Reference3DTool) tool.addPrimitive(shape);
+			if (tool instanceof Scene3DTool) tool.addPrimitive(shape);
 		},
 	);
 
 	const handleAddModel = useEventCallback(async () => {
 		// App-layer file access (core only ever receives the bytes).
 		const handle = await FileSystem.openFileDialog({
-			id: "reference3d-model",
+			id: "scene3d-model",
 			types: [
 				{
 					description: "3D Model (VRM / GLB)",
@@ -92,79 +95,89 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 		if (!handle) return;
 
 		const bytes = new Uint8Array(await handle.file.arrayBuffer());
-		await paplico.reference3dAddModelFromBytes(bytes, handle.file.name);
+		await paplico.scene3dAddModelFromBytes(bytes, handle.file.name);
 	});
 
 	const handleZoomChange = useEventCallback((distance: number) => {
 		const tool = paplico.tools.getCurrentTool();
-		if (tool instanceof Reference3DTool) tool.setCameraZoom(distance);
+		if (tool instanceof Scene3DTool) tool.setCameraZoom(distance);
 	});
 
 	const handleYawChange = useEventCallback((yawDeg: number) => {
 		const tool = paplico.tools.getCurrentTool();
-		if (tool instanceof Reference3DTool) {
+		if (tool instanceof Scene3DTool) {
 			tool.setCameraOrbit(yawDeg, cameraOrbit.pitchDeg);
 		}
 	});
 
 	const handlePitchChange = useEventCallback((pitchDeg: number) => {
 		const tool = paplico.tools.getCurrentTool();
-		if (tool instanceof Reference3DTool) {
+		if (tool instanceof Scene3DTool) {
 			tool.setCameraOrbit(cameraOrbit.yawDeg, pitchDeg);
 		}
 	});
 
 	const handleMoveXChange = useEventCallback((delta: number) => {
 		const tool = paplico.tools.getCurrentTool();
-		if (tool instanceof Reference3DTool) tool.moveCameraAlongAxis("x", delta);
+		if (tool instanceof Scene3DTool) tool.moveCameraAlongAxis("x", delta);
 	});
 
 	const handleMoveYChange = useEventCallback((delta: number) => {
 		const tool = paplico.tools.getCurrentTool();
-		if (tool instanceof Reference3DTool) tool.moveCameraAlongAxis("y", delta);
+		if (tool instanceof Scene3DTool) tool.moveCameraAlongAxis("y", delta);
 	});
 
 	const handleMoveZChange = useEventCallback((delta: number) => {
 		const tool = paplico.tools.getCurrentTool();
-		if (tool instanceof Reference3DTool) tool.moveCameraAlongAxis("z", delta);
+		if (tool instanceof Scene3DTool) tool.moveCameraAlongAxis("z", delta);
 	});
 
 	const handleMoveDragEnd = useEventCallback(() => {
 		const tool = paplico.tools.getCurrentTool();
-		if (tool instanceof Reference3DTool) tool.endCameraAxisMove();
+		if (tool instanceof Scene3DTool) tool.endCameraAxisMove();
+	});
+
+	const handleFrameSelection = useEventCallback(() => {
+		const tool = paplico.tools.getCurrentTool();
+		if (tool instanceof Scene3DTool) tool.frameSelectedNode();
+	});
+
+	const handleFrameScene = useEventCallback(() => {
+		const tool = paplico.tools.getCurrentTool();
+		if (tool instanceof Scene3DTool) tool.frameScene();
 	});
 
 	const handleAzimuthChange = useEventCallback((deg: number) => {
-		paplico.reference3dUpdateEditingElement({
+		paplico.scene3dUpdateEditingElement({
 			lightDir: lightDirFromAngles(deg, lightElevation),
 		});
 	});
 
 	const handleElevationChange = useEventCallback((deg: number) => {
-		paplico.reference3dUpdateEditingElement({
+		paplico.scene3dUpdateEditingElement({
 			lightDir: lightDirFromAngles(lightAzimuth, deg),
 		});
 	});
 
 	const handleIncludeInExportChange = useEventCallback((checked: boolean) => {
-		paplico.reference3dUpdateEditingElement({ includeInExport: checked });
+		paplico.scene3dUpdateEditingElement({ includeInExport: checked });
 	});
 
 	if (!scene) {
 		return (
 			<p className="type-label leading-tight text-muted-foreground">
-				{t("toolbar.reference3dHint")}
+				{t("toolbar.scene3dHint")}
 			</p>
 		);
 	}
 
 	return (
 		<div className="flex flex-col gap-3 w-full">
-			<Reference3DSceneField element={scene} />
+			<Scene3DField element={scene} />
 
 			<div className="flex flex-col">
 				<span className="mb-1 type-section text-muted-foreground">
-					{t("actionsPanel.reference3dAddPrimitive")}
+					{t("actionsPanel.scene3dAddPrimitive")}
 				</span>
 				<div className="flex gap-1">
 					{PRIMITIVES.map(({ shape, icon, labelKey }) => (
@@ -180,15 +193,15 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 			</div>
 
 			<Button $size="sm" $variant="default" onClick={handleAddModel}>
-				{t("toolbar.reference3dAddModel")}
+				{t("toolbar.scene3dAddModel")}
 			</Button>
 
 			<div className="flex flex-col">
 				<span className="mb-1 type-section text-muted-foreground">
-					{t("actionsPanel.reference3dCamera")}
+					{t("actionsPanel.scene3dCamera")}
 				</span>
 				<LabeledInfiniteSlider
-					label={t("actionsPanel.reference3dCameraZoom")}
+					label={t("actionsPanel.scene3dCameraZoom")}
 					value={cameraDistance}
 					unit="m"
 					range={2}
@@ -196,7 +209,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 					onValueChange={handleZoomChange}
 				/>
 				<LabeledSlider
-					label={t("actionsPanel.reference3dCameraYaw")}
+					label={t("actionsPanel.scene3dCameraYaw")}
 					value={Math.round(cameraOrbit.yawDeg)}
 					min={-180}
 					max={180}
@@ -204,7 +217,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 					onValueChange={handleYawChange}
 				/>
 				<LabeledSlider
-					label={t("actionsPanel.reference3dCameraPitch")}
+					label={t("actionsPanel.scene3dCameraPitch")}
 					value={Math.round(cameraOrbit.pitchDeg)}
 					min={-90}
 					max={90}
@@ -213,7 +226,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 				/>
 				<div className="flex flex-col gap-1">
 					<span className="type-label text-muted-foreground">
-						{t("actionsPanel.reference3dCameraMove")}
+						{t("actionsPanel.scene3dCameraMove")}
 					</span>
 					<MoveAxisSlider
 						axisLabel="X"
@@ -231,14 +244,27 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 						onDragEnd={handleMoveDragEnd}
 					/>
 				</div>
+				<div className="mt-2 flex flex-col gap-1">
+					<Button
+						$size="sm"
+						$variant="secondary"
+						disabled={snap.scene3dSelectedNodeId == null}
+						onClick={handleFrameSelection}
+					>
+						{t("actionsPanel.scene3dCameraFrameSelection")}
+					</Button>
+					<Button $size="sm" $variant="secondary" onClick={handleFrameScene}>
+						{t("actionsPanel.scene3dCameraFrameScene")}
+					</Button>
+				</div>
 			</div>
 
 			<div className="flex flex-col">
 				<span className="mb-1 type-section text-muted-foreground">
-					{t("actionsPanel.reference3dLight")}
+					{t("actionsPanel.scene3dLight")}
 				</span>
 				<LabeledSlider
-					label={t("actionsPanel.reference3dLightAzimuth")}
+					label={t("actionsPanel.scene3dLightAzimuth")}
 					value={lightAzimuth}
 					min={-180}
 					max={180}
@@ -246,7 +272,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 					onValueChange={handleAzimuthChange}
 				/>
 				<LabeledSlider
-					label={t("actionsPanel.reference3dLightElevation")}
+					label={t("actionsPanel.scene3dLightElevation")}
 					value={lightElevation}
 					min={-90}
 					max={90}
@@ -261,56 +287,56 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 					checked={includeInExport}
 					onCheckedChange={handleIncludeInExportChange}
 				/>
-				{t("actionsPanel.reference3dIncludeInExport")}
+				{t("actionsPanel.scene3dIncludeInExport")}
 			</label>
 		</div>
 	);
 });
 
 /**
- * Scene picker for a reference3d element. Shared scenes are reusable across
+ * Scene picker for a scene3d element. Shared scenes are reusable across
  * elements (one scene, many cameras) — the select re-points the element at
- * any existing scene. Used both while editing (Reference3DToolControls) and
+ * any existing scene. Used both while editing (Scene3DToolControls) and
  * for a plain selection (ActionsPanel element controls).
  */
-export const Reference3DSceneField = memo(function Reference3DSceneField({
+export const Scene3DField = memo(function Scene3DField({
 	element,
 }: {
 	/** Snapshot-safe subset: the field only reads the id and scene ref. */
-	element: Pick<Reference3DElement, "id" | "sceneId">;
+	element: Pick<Scene3DElement, "id" | "sceneId">;
 }) {
 	const t = useTranslation();
 	const paplico = usePaplico();
 	const snap = useSnapshot(paplico.uiState);
 
-	const references3d = snap.document.references3d;
+	const scenes3d = snap.document.scenes3d;
 	const sceneItems = useMemo(
 		() =>
-			Object.values(references3d ?? {}).map((def, index) => ({
-				label: def.name ?? `${t("actionsPanel.reference3dScene")} ${index + 1}`,
+			Object.values(scenes3d ?? {}).map((def, index) => ({
+				label: def.name ?? `${t("actionsPanel.scene3dLabel")} ${index + 1}`,
 				value: def.id,
 			})),
-		[references3d, t],
+		[scenes3d, t],
 	);
 
 	const handleSceneChange = useEventCallback((sceneId: string) => {
-		paplico.reference3dUpdateElement(element.id, { sceneId });
+		paplico.scene3dUpdateElement(element.id, { sceneId });
 	});
 
 	const handleSceneNameChange = useEventCallback((name: string | undefined) => {
 		if (name == null) return;
-		paplico.commands.renameReference3DScene(element.sceneId, name);
+		paplico.commands.renameScene3D(element.sceneId, name);
 	});
 
-	const currentSceneName = references3d?.[element.sceneId]?.name ?? "";
+	const currentSceneName = scenes3d?.[element.sceneId]?.name ?? "";
 	const defaultSceneLabel =
 		sceneItems.find((item) => item.value === element.sceneId)?.label ??
-		t("actionsPanel.reference3dScene");
+		t("actionsPanel.scene3dLabel");
 
 	return (
 		<div className="flex flex-col gap-1">
 			<span className="type-section text-muted-foreground">
-				{t("actionsPanel.reference3dScene")}
+				{t("actionsPanel.scene3dLabel")}
 			</span>
 			<SimpleSelect
 				$size="sm"
@@ -335,10 +361,10 @@ function PrimitiveButton({
 	label,
 	onAdd,
 }: {
-	shape: Reference3DPrimitiveShape;
+	shape: Scene3DPrimitiveShape;
 	icon: LucideIcon;
 	label: string;
-	onAdd: (shape: Reference3DPrimitiveShape) => void;
+	onAdd: (shape: Scene3DPrimitiveShape) => void;
 }) {
 	const handleClick = useEventCallback(() => onAdd(shape));
 	return (
@@ -369,10 +395,14 @@ function LabeledSlider({
 		<div className="flex flex-col">
 			<div className="flex items-center justify-between px-1">
 				<span className="type-label text-muted-foreground">{label}</span>
-				<span className="type-value text-foreground font-mono tabular-nums">
-					{value}
-					{unit}
-				</span>
+				<NumInput
+					value={value}
+					step={1}
+					min={min}
+					max={max}
+					unit={unit}
+					onChange={onValueChange}
+				/>
 			</div>
 			<Slider
 				min={min}
@@ -405,10 +435,12 @@ function LabeledInfiniteSlider({
 		<div className="flex flex-col">
 			<div className="flex items-center justify-between px-1">
 				<span className="type-label text-muted-foreground">{label}</span>
-				<span className="type-value text-foreground font-mono tabular-nums">
-					{value.toFixed(1)}
-					{unit}
-				</span>
+				<NumInput
+					value={Number(value.toFixed(1))}
+					step={step}
+					unit={unit}
+					onChange={onValueChange}
+				/>
 			</div>
 			<InfiniteSlider
 				min={-Infinity}

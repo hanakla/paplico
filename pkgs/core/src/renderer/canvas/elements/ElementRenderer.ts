@@ -21,7 +21,7 @@ import type {
 	ImageObject,
 	MeshArtObject,
 	Path,
-	Reference3DElement,
+	Scene3DElement,
 	TextElement,
 } from "../../../schema";
 import {
@@ -63,9 +63,9 @@ import { ImageElementRenderer } from "./ImageElementRenderer";
 import { MeshElementRenderer } from "./MeshElementRenderer";
 import { PathElementRenderer } from "./PathElementRenderer";
 import {
-	Reference3DElementRenderer,
-	type Reference3DRenderContext,
-} from "./Reference3DElementRenderer";
+	Scene3DElementRenderer,
+	type Scene3DRenderContext,
+} from "./Scene3DElementRenderer";
 import { TextElementRenderer } from "./TextElementRenderer";
 
 interface ElementRendererDeps extends SharedRenderBindings {
@@ -129,11 +129,11 @@ interface ElementRendererDeps extends SharedRenderBindings {
 		revision: number;
 	} | null;
 	/**
-	 * Reference3D subsystem access (lazy three.js service + shared scene defs).
-	 * Wired by the Paplico facade; while absent or returning null, reference3d
+	 * Scene3D subsystem access (lazy three.js service + shared scene defs).
+	 * Wired by the Paplico facade; while absent or returning null, scene3d
 	 * elements are skipped.
 	 */
-	getReference3DContext?: () => Reference3DRenderContext | null;
+	getScene3DContext?: () => Scene3DRenderContext | null;
 }
 
 export class ElementRenderer {
@@ -142,7 +142,7 @@ export class ElementRenderer {
 	private readonly imageRenderer: ImageElementRenderer;
 	private readonly textRenderer: TextElementRenderer;
 	private readonly meshRenderer: MeshElementRenderer;
-	private readonly reference3dRenderer: Reference3DElementRenderer;
+	private readonly scene3dRenderer: Scene3DElementRenderer;
 	private readonly pathRenderer: PathElementRenderer;
 
 	public constructor(deps: ElementRendererDeps) {
@@ -229,7 +229,7 @@ export class ElementRenderer {
 			},
 			renderState: deps.renderState,
 		});
-		this.reference3dRenderer = new Reference3DElementRenderer({
+		this.scene3dRenderer = new Scene3DElementRenderer({
 			device: deps.device,
 			strokePipeline: deps.strokePipeline,
 			dummyGradientBindGroup: deps.dummyGradientBindGroup,
@@ -241,7 +241,7 @@ export class ElementRenderer {
 			getBindGroup: deps.getBindGroup,
 			getTransformsBindGroup: deps.getTransformsBindGroup,
 			getParentGroupMap: deps.getParentGroupMap,
-			getReference3DContext: () => deps.getReference3DContext?.() ?? null,
+			getScene3DContext: () => deps.getScene3DContext?.() ?? null,
 		});
 	}
 
@@ -359,18 +359,18 @@ export class ElementRenderer {
 				pt,
 			);
 		},
-		reference3d: (pass, el, map, alpha) => {
+		scene3d: (pass, el, map, alpha) => {
 			// 3D scenes are draft references: excluded from image export unless
 			// the element opts in.
 			if (
 				this.deps.renderState.isExport &&
-				(el as Reference3DElement).includeInExport !== true
+				(el as Scene3DElement).includeInExport !== true
 			) {
 				return;
 			}
-			return this.reference3dRenderer.renderReference3D(
+			return this.scene3dRenderer.renderScene3D(
 				pass,
-				el as Reference3DElement,
+				el as Scene3DElement,
 				map,
 				alpha,
 			);
@@ -748,21 +748,33 @@ export class ElementRenderer {
 	}
 
 	/**
-	 * Pre-warm Reference3D textures at the document rasterization scale (export
-	 * path). No-op while the Reference3D context is not wired.
+	 * Pre-warm Scene3D textures at the document rasterization scale (export
+	 * path). No-op while the Scene3D context is not wired.
 	 */
-	public async ensureReference3DTextures(
+	public async ensureScene3DTextures(
 		document: Document,
 		elementFilter?: ReadonlySet<string>,
 	): Promise<void> {
-		await this.reference3dRenderer.ensureTextures(document, elementFilter);
+		await this.scene3dRenderer.ensureTextures(document, elementFilter);
+	}
+
+	/** @see Scene3DElementRenderer.renderEditorView */
+	public renderScene3DEditorView(
+		...args: Parameters<Scene3DElementRenderer["renderEditorView"]>
+	): void {
+		this.scene3dRenderer.renderEditorView(...args);
+	}
+
+	/** @see Scene3DElementRenderer.releaseEditorView */
+	public releaseScene3DEditorView(): void {
+		this.scene3dRenderer.releaseEditorView();
 	}
 
 	/**
-	 * Destroy all cached Reference3D textures. Called by RenderOrchestrator on
+	 * Destroy all cached Scene3D textures. Called by RenderOrchestrator on
 	 * teardown and device loss, alongside CanvasLayer's asset cache cleanup.
 	 */
-	public destroyReference3DTextures(): void {
-		this.reference3dRenderer.destroyTextures();
+	public destroyScene3DTextures(): void {
+		this.scene3dRenderer.destroyTextures();
 	}
 }

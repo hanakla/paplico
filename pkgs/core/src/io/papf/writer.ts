@@ -460,7 +460,7 @@ function buildMetaPayload(
 			rasterizationDpi: doc.rasterizationDpi,
 			units: doc.units,
 			defs: doc.defs,
-			references3d: doc.references3d,
+			scenes3d: doc.scenes3d,
 		},
 		fileManifest,
 		...(appData ? { appData } : {}),

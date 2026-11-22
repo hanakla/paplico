@@ -162,7 +162,7 @@ function legacyPivot(
 		case "path":
 			return centerOf(calculatePathBounds(element));
 		case "image":
-		case "reference3d":
+		case "scene3d":
 			return { x: element.x, y: element.y };
 		case "text": {
 			// A bound text pivoted on its estimate even once laid out.

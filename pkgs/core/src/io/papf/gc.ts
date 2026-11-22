@@ -10,7 +10,7 @@
  *    TextElement.axisBinding.pathObjectId/clipPathId/flow.nextTextElementId).
  *  - Orphaned embedded files: `doc.files` entries whose `uid` is not
  *    referenced by any `fileUid` field reachable from the surviving objects,
- *    `doc.brushPresets`, `doc.colorProfile`, or `doc.references3d`.
+ *    `doc.brushPresets`, `doc.colorProfile`, or `doc.scenes3d`.
  *
  * Never reads or writes `doc.timelapse` — timelapse entries are raw Yjs CRDT
  * updates that don't reference `doc.objects`, so they pass through untouched.
@@ -123,7 +123,7 @@ function getObjectEdges(obj: AnyArtObject): string[] {
 			break;
 		case "path":
 		case "image":
-		case "reference3d":
+		case "scene3d":
 			// No references of their own beyond the mask handled above.
 			break;
 		default:
@@ -135,7 +135,7 @@ function getObjectEdges(obj: AnyArtObject): string[] {
 
 /**
  * Recursively collects every string value stored under a `fileUid` key,
- * scanning the surviving objects plus brushPresets/appearancePresets/colorProfile/references3d.
+ * scanning the surviving objects plus brushPresets/appearancePresets/colorProfile/scenes3d.
  * Binary payloads (typed arrays / ArrayBuffers) are not descended into.
  */
 function collectUsedFileUids(
@@ -148,7 +148,7 @@ function collectUsedFileUids(
 		doc.brushPresets,
 		doc.appearancePresets,
 		doc.colorProfile,
-		doc.references3d,
+		doc.scenes3d,
 	]) {
 		collectFileUids(source, used);
 	}

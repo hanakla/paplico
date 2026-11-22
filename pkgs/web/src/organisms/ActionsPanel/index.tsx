@@ -1,4 +1,4 @@
-import { isReference3D } from "@paplico/core/schema";
+import { isScene3D } from "@paplico/core/schema";
 import { useDeferredValue, useMemo } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
@@ -20,11 +20,8 @@ import { EyedropperToolControls } from "./EyedropperToolControls";
 import { PathBooleanOperations } from "./PathBooleanOperations";
 import { PathEditToolControls } from "./PathEditToolControls";
 import { PenToolControls } from "./PenToolControls";
-import {
-	Reference3DSceneField,
-	Reference3DToolControls,
-} from "./Reference3DToolControls";
 import { RepeatControls } from "./RepeatControls";
+import { Scene3DField, Scene3DToolControls } from "./Scene3DToolControls";
 import { SelectToolControls } from "./SelectToolControls";
 import { ShapeToolControls } from "./ShapeToolControls";
 import { TextEditingControls } from "./TextEditingControls";
@@ -53,7 +50,7 @@ export function ActionsPanel() {
 	const isSelectTool = toolSnap.currentTool === "select";
 	const isTextTool = toolSnap.currentTool === "text";
 	const isCharTouchMode = isTextTool && toolSnap.textCharTouchMode;
-	const isReference3DTool = toolSnap.currentTool === "reference3d";
+	const isScene3DTool = toolSnap.currentTool === "scene3d";
 	const isArtboardTool = toolSnap.currentTool === "artboard";
 	const isShapeTool = toolSnap.currentTool === "shape";
 
@@ -78,10 +75,10 @@ export function ActionsPanel() {
 	const allSelectedArePaths = uniformType === "path";
 	const showPathOperations = hasMultipleSelection && allSelectedArePaths;
 	const showElementControls = hasSelection && uniformType && !isTextEditing;
-	// Lone reference3d element selected: offer its scene picker without
-	// requiring the reference3d tool's edit mode.
-	const selectedReference3d =
-		selectedElements.length === 1 && isReference3D(selectedElements[0])
+	// Lone scene3d element selected: offer its scene picker without
+	// requiring the scene3d tool's edit mode.
+	const selectedScene3d =
+		selectedElements.length === 1 && isScene3D(selectedElements[0])
 			? selectedElements[0]
 			: null;
 
@@ -107,8 +104,8 @@ export function ActionsPanel() {
 					<PenToolControls />
 				) : isPathEditTool ? (
 					<PathEditToolControls />
-				) : isReference3DTool ? (
-					<Reference3DToolControls />
+				) : isScene3DTool ? (
+					<Scene3DToolControls />
 				) : isSelectTool && !hasSelection ? (
 					<SelectToolControls />
 				) : isCharTouchMode ||
@@ -127,9 +124,7 @@ export function ActionsPanel() {
 				) : showElementControls ? (
 					<div className="flex flex-col gap-3 w-full">
 						{isSelectTool && <SelectToolControls />}
-						{selectedReference3d && (
-							<Reference3DSceneField element={selectedReference3d} />
-						)}
+						{selectedScene3d && <Scene3DField element={selectedScene3d} />}
 						<ElementControls elements={selectedElements} />
 						<TransformControls />
 						{showPathOperations && <PathBooleanOperations />}

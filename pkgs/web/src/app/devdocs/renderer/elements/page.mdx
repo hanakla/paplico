@@ -23,7 +23,7 @@ Paplicoのドキュメントは、パス・画像・テキスト・グループ�
 | canvas/elements/ | `TextElementRenderer` | テキスト要素→パスへの変換とキャッシュ。グリフパスを `renderPath` に委譲して描画 |
 | canvas/elements/ | `ImageElementRenderer` | 画像要素の `GPUTexture` ロードと blit 描画。祖先グループのトランスフォーム合成 |
 | canvas/elements/ | `MeshElementRenderer` | メッシュワープのコンテナ。子をワープ済みの一時要素に解決し、通常の要素レンダラーへディスパッチする |
-| canvas/elements/ | `Reference3DElementRenderer` | 3D参照要素。three.js 側が描いたテクスチャを blit する |
+| canvas/elements/ | `Scene3DElementRenderer` | 3D参照要素。three.js 側が描いたテクスチャを blit する |
 | canvas/pipeline/brush/ | `BrushRenderer` | dab / ribbonブラシ描画の入口。`DabRenderer` と `RibbonRenderer` へ振り分ける |
 | canvas/pipeline/brush/ | `BrushTextureManager` | ブラシテクスチャの読み込み・プログラム生成・キャッシュ管理 |
 | canvas/pipeline/brush/ | `DabEvaluator` | ベジェ曲線に沿ったDab位置の計算。カーブ行列で筆圧・チルト・速度をDabごとに反映 |
@@ -44,9 +44,9 @@ Paplicoのドキュメントは、パス・画像・テキスト・グループ�
 | `text` | `TextElementRenderer.renderText()` |
 | `mesh` | `MeshElementRenderer.render()` |
 | `blend` | `PathElementRenderer.renderBlend()` |
-| `reference3d` | `Reference3DElementRenderer.renderReference3D()` |
+| `scene3d` | `Scene3DElementRenderer.renderScene3D()` |
 
-`reference3d` は画像エクスポート中、要素の `includeInExport` が `true` のときだけ描く。
+`scene3d` は画像エクスポート中、要素の `includeInExport` が `true` のときだけ描く。
 
 `group` 型はディスパッチテーブルに登録されていない。`CanvasLayer.renderElements` がグループを再帰的にたどり、子要素・親トランスフォーム・継承するプリフィルターを渡しながら個別にディスパッチする。
 

@@ -148,7 +148,8 @@ export const TransformControls = memo(function TransformControls() {
 
 // --- Helpers ---
 
-function NumInput({
+/** A number of the panel, edited in place by typing or by dragging across it. */
+export function NumInput({
 	value,
 	onChange,
 	step,

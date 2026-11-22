@@ -173,15 +173,15 @@ export const UI_THEME = {
 		// --- Bucket Fill ---
 		bucketFillCutPath: rgba(1.0, 0.6, 0.0, 0.9),
 		bucketFillLeakMarker: rgba(1.0, 0.2, 0.2, 0.95),
-		// --- Reference3D gizmo ---
-		reference3dAxisX: rgba(0.92, 0.26, 0.31, 1.0),
-		reference3dAxisY: rgba(0.35, 0.8, 0.36, 1.0),
-		reference3dAxisZ: rgba(0.27, 0.52, 0.95, 1.0),
-		reference3dPlaneFill: rgba(1.0, 1.0, 1.0, 0.9),
-		reference3dPlaneOutline: rgba(0.35, 0.35, 0.35, 1.0),
-		reference3dBoneFill: rgba(1.0, 1.0, 1.0, 0.95),
-		reference3dBoneOutline: rgba(0.85, 0.35, 0.65, 1.0),
-		reference3dHandleHover: rgba(1.0, 0.85, 0.2, 1.0),
+		// --- Scene3D gizmo ---
+		scene3dAxisX: rgba(0.92, 0.26, 0.31, 1.0),
+		scene3dAxisY: rgba(0.35, 0.8, 0.36, 1.0),
+		scene3dAxisZ: rgba(0.27, 0.52, 0.95, 1.0),
+		scene3dPlaneFill: rgba(1.0, 1.0, 1.0, 0.9),
+		scene3dPlaneOutline: rgba(0.35, 0.35, 0.35, 1.0),
+		scene3dBoneFill: rgba(1.0, 1.0, 1.0, 0.95),
+		scene3dBoneOutline: rgba(0.85, 0.35, 0.65, 1.0),
+		scene3dHandleHover: rgba(1.0, 0.85, 0.2, 1.0),
 		// --- Perspective ruler ---
 		perspectiveHorizon: rgba(0.2, 0.7, 0.9, 0.7),
 		perspectiveVp: rgba(0.2, 0.7, 0.9, 1.0),

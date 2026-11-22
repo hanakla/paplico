@@ -61,5 +61,5 @@ export function findGuideOwner(
  * have no outline of their own to show in place of their paint.
  */
 export function canBecomeGuide(element: AnyArtObject): boolean {
-	return element.type !== "image" && element.type !== "reference3d";
+	return element.type !== "image" && element.type !== "scene3d";
 }

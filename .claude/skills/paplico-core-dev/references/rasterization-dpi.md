@@ -94,8 +94,8 @@ the display size, so the compositing/blit side is untouched.
 
 ## Gotchas / open edges
 
-- **Reference3D is under R, but clamped.** `Reference3DElementRenderer` sizes scene
-  textures from R through `clampReference3DRasterScale` ([0.25, 4]) with a
+- **Scene3D is under R, but clamped.** `Scene3DElementRenderer` sizes scene
+  textures from R through `clampScene3DRasterScale` ([0.25, 4]) with a
   2048 px side cap, since a full 3D scene is a different memory tradeoff from a
   filter bake. Zoom never re-renders scenes; changing the document DPI does.
 - **Any new renderer that samples a filtered/rasterized intermediary** must size

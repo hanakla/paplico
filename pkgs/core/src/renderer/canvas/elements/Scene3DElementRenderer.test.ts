@@ -1,29 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../../../document/factory";
 import type {
-	Reference3DRenderRequest,
-	Reference3DScenePixels,
-	Reference3DServiceApi,
-} from "../../../reference3d/types";
-import type {
-	Document,
-	Reference3DDef,
-	Reference3DElement,
-} from "../../../schema";
+	Scene3DPixels,
+	Scene3DRenderRequest,
+	Scene3DServiceApi,
+} from "../../../scene3d/types";
+import type { Document, Scene3DDef, Scene3DElement } from "../../../schema";
 import type { AssetState } from "../CanvasLayerTypes";
 import {
-	clampReference3DRasterScale,
-	computeReference3DTextureSize,
-	Reference3DElementRenderer,
-	type Reference3DRenderContext,
-} from "./Reference3DElementRenderer";
+	clampScene3DRasterScale,
+	computeScene3DTextureSize,
+	Scene3DElementRenderer,
+	type Scene3DRenderContext,
+} from "./Scene3DElementRenderer";
 
-describe("Reference3DElementRenderer", () => {
-	describe("renderReference3D", () => {
-		it("should skip rendering entirely while the Reference3D context is not wired", () => {
+describe("Scene3DElementRenderer", () => {
+	describe("renderScene3D", () => {
+		it("should skip rendering entirely while the Scene3D context is not wired", () => {
 			const { renderer, deps } = createRenderer({ context: null });
 
-			renderer.renderReference3D(makePassEncoder(), makeElement(), new Map());
+			renderer.renderScene3D(makePassEncoder(), makeElement(), new Map());
 
 			expect(deps.blitTextureToCanvas).not.toHaveBeenCalled();
 		});
@@ -32,7 +28,7 @@ describe("Reference3DElementRenderer", () => {
 			const { renderer, deps, service } = createRenderer();
 			const element = makeElement({ sceneId: "unknown-scene" });
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 
 			expect(service.renderScene).not.toHaveBeenCalled();
 			expect(deps.blitTextureToCanvas).not.toHaveBeenCalled();
@@ -42,7 +38,7 @@ describe("Reference3DElementRenderer", () => {
 			const { renderer, deps, service } = createRenderer();
 			const element = makeElement();
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			// Nothing cached yet — first frame draws nothing for this element.
 			expect(deps.blitTextureToCanvas).not.toHaveBeenCalled();
 
@@ -57,7 +53,7 @@ describe("Reference3DElementRenderer", () => {
 			// Async completion asks the scheduler for a follow-up frame.
 			expect(deps.assetState.onRequestRender).toHaveBeenCalled();
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			expect(deps.blitTextureToCanvas).toHaveBeenCalledOnce();
 			const bounds = deps.blitTextureToCanvas.mock.calls[0][2];
 			expect(bounds).toEqual({
@@ -74,23 +70,23 @@ describe("Reference3DElementRenderer", () => {
 			const { renderer, service } = createRenderer();
 			const element = makeElement();
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			await flushAsync();
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 
 			expect(service.renderScene).toHaveBeenCalledOnce();
 		});
 
 		it("should re-render when scene nodes change, blitting the stale texture meanwhile", async () => {
-			const { renderer, deps, service, references3d } = createRenderer();
+			const { renderer, deps, service, scenes3d } = createRenderer();
 			const element = makeElement();
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			await flushAsync();
 
 			// Mutate the shared scene definition (e.g. a node was moved).
-			references3d["scene-1"] = makeSceneDef({
+			scenes3d["scene-1"] = makeSceneDef({
 				nodes: [
 					{
 						id: "node-box",
@@ -105,7 +101,7 @@ describe("Reference3DElementRenderer", () => {
 				],
 			});
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			// Stale texture is still blitted (no flicker) while the new render runs.
 			expect(deps.blitTextureToCanvas).toHaveBeenCalledOnce();
 			await flushAsync();
@@ -119,9 +115,9 @@ describe("Reference3DElementRenderer", () => {
 				transform: { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 },
 			});
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			await flushAsync();
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 
 			expect(deps.blitTextureToCanvas).not.toHaveBeenCalled();
 			expect(deps.blitQuadToCanvas).toHaveBeenCalledOnce();
@@ -141,11 +137,11 @@ describe("Reference3DElementRenderer", () => {
 			const { renderer, service } = createRenderer();
 			const element = makeElement();
 
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			await flushAsync();
 
 			service.bumpEpoch();
-			renderer.renderReference3D(makePassEncoder(), element, new Map());
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
 			await flushAsync();
 
 			expect(service.renderScene).toHaveBeenCalledTimes(2);
@@ -166,7 +162,7 @@ describe("Reference3DElementRenderer", () => {
 			expect(request.rasterScale).toBe(2);
 			expect(request.width).toBe(800);
 			expect(request.height).toBe(600);
-			expect(deps.assetState.reference3dTextureCache?.size).toBe(1);
+			expect(deps.assetState.scene3dTextureCache?.size).toBe(1);
 		});
 
 		it("should skip scenes not flagged for export (excluded by default)", async () => {
@@ -189,13 +185,146 @@ describe("Reference3DElementRenderer", () => {
 		});
 	});
 
+	describe("scene editor view", () => {
+		const EDITOR_CAMERA = {
+			projection: "perspective",
+			position: [1, 2, 3],
+			target: [0, 0, 0],
+			fovDeg: 40,
+		} as const satisfies Scene3DElement["camera"];
+
+		// An 800×600 canvas centred on the element's 400×300 frame, at 2
+		// texels per world unit.
+		const CANVAS_CORNERS = [
+			{ x: -400, y: 300 },
+			{ x: 400, y: 300 },
+			{ x: 400, y: -300 },
+			{ x: -400, y: -300 },
+		];
+
+		function renderEditorView(
+			renderer: Scene3DElementRenderer,
+			element: Scene3DElement,
+			corners = CANVAS_CORNERS,
+		): void {
+			renderer.renderEditorView(
+				makePassEncoder(),
+				element,
+				new Map(),
+				EDITOR_CAMERA,
+				corners,
+				2,
+			);
+		}
+
+		it("should render the frame's view widened to the canvas, through the editor's camera", async () => {
+			const { renderer, deps, service } = createRenderer();
+			const element = makeElement();
+
+			renderEditorView(renderer, element);
+			// Nothing rendered yet.
+			expect(deps.blitQuadToCanvas).not.toHaveBeenCalled();
+			await flushAsync();
+
+			const request = service.renderScene.mock.calls[0][0];
+			expect(request.camera).toEqual(EDITOR_CAMERA);
+			expect(request.width).toBe(1600);
+			expect(request.height).toBe(1200);
+			expect(request.rasterScale).toBe(2);
+			// The frame is the middle half of the canvas, so its view (-1..1)
+			// is the middle half of the rendered one.
+			expect(request.window).toEqual({
+				minX: -2,
+				maxX: 2,
+				minY: -2,
+				maxY: 2,
+				aspect: 400 / 300,
+			});
+
+			renderEditorView(renderer, element);
+			expect(service.renderScene).toHaveBeenCalledOnce();
+			expect(deps.blitQuadToCanvas.mock.calls[0][2]).toEqual(CANVAS_CORNERS);
+		});
+
+		it("should keep the frame's view in place when the canvas is off its centre", async () => {
+			const { renderer, service } = createRenderer();
+
+			// The canvas spans x 0..800: the frame sits at its left edge.
+			renderEditorView(renderer, makeElement(), [
+				{ x: 0, y: 300 },
+				{ x: 800, y: 300 },
+				{ x: 800, y: -300 },
+				{ x: 0, y: -300 },
+			]);
+			await flushAsync();
+
+			expect(service.renderScene.mock.calls[0][0].window).toMatchObject({
+				minX: 0,
+				maxX: 4,
+			});
+		});
+
+		it("should draw a view kept through a pan where it was rendered for", async () => {
+			const { renderer, deps } = createRenderer();
+			const element = makeElement();
+			renderEditorView(renderer, element);
+			await flushAsync();
+
+			const panned = CANVAS_CORNERS.map(({ x, y }) => ({ x: x + 100, y }));
+			renderEditorView(renderer, element, panned);
+
+			// The view for the panned canvas is still rendering.
+			expect(deps.blitQuadToCanvas.mock.calls.at(-1)?.[2]).toEqual(
+				CANVAS_CORNERS,
+			);
+		});
+
+		it("should keep the element's own texture beside the editor's view", async () => {
+			const { renderer, deps, service } = createRenderer();
+			const element = makeElement();
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
+			await flushAsync();
+
+			renderEditorView(renderer, element);
+			await flushAsync();
+			renderer.renderScene3D(makePassEncoder(), element, new Map());
+
+			// One render each: the editor's view did not replace the element's.
+			expect(service.renderScene).toHaveBeenCalledTimes(2);
+			expect(deps.blitTextureToCanvas).toHaveBeenCalledOnce();
+		});
+
+		it("should free the view once the editor has closed", async () => {
+			const { renderer, deps } = createRenderer();
+			renderEditorView(renderer, makeElement());
+			await flushAsync();
+			const texture = [...deps.assetState.scene3dTextureCache!.values()][0]
+				.texture;
+
+			renderer.releaseEditorView();
+
+			expect(texture.destroy).toHaveBeenCalled();
+			expect(deps.assetState.scene3dTextureCache?.size).toBe(0);
+		});
+
+		it("should drop a view that finishes rendering after the editor closed", async () => {
+			const { renderer, deps } = createRenderer();
+			renderEditorView(renderer, makeElement());
+
+			renderer.releaseEditorView();
+			await flushAsync();
+
+			expect(deps.assetState.scene3dTextureCache?.size ?? 0).toBe(0);
+		});
+	});
+
 	describe("destroyTextures", () => {
 		it("should destroy every cached texture and clear the cache", async () => {
 			const { renderer, deps } = createRenderer();
 			const element = makeElement({ includeInExport: true });
 
 			await renderer.ensureTextures(makeDocument(element), undefined);
-			const cache = deps.assetState.reference3dTextureCache!;
+			const cache = deps.assetState.scene3dTextureCache!;
 			const texture = cache.get(element.id)!.texture;
 
 			renderer.destroyTextures();
@@ -206,33 +335,33 @@ describe("Reference3DElementRenderer", () => {
 	});
 });
 
-describe("clampReference3DRasterScale", () => {
+describe("clampScene3DRasterScale", () => {
 	it("should clamp the raster scale to [0.25, 4] without quantizing", () => {
-		expect(clampReference3DRasterScale(1)).toBe(1);
-		expect(clampReference3DRasterScale(1.3)).toBe(1.3);
+		expect(clampScene3DRasterScale(1)).toBe(1);
+		expect(clampScene3DRasterScale(1.3)).toBe(1.3);
 		// 300dpi / 72 exceeds the texture-size sanity cap.
-		expect(clampReference3DRasterScale(300 / 72)).toBe(4);
-		expect(clampReference3DRasterScale(0.1)).toBe(0.25);
-		expect(clampReference3DRasterScale(16)).toBe(4);
+		expect(clampScene3DRasterScale(300 / 72)).toBe(4);
+		expect(clampScene3DRasterScale(0.1)).toBe(0.25);
+		expect(clampScene3DRasterScale(16)).toBe(4);
 	});
 });
 
-describe("computeReference3DTextureSize", () => {
+describe("computeScene3DTextureSize", () => {
 	it("should scale the element rect by the raster scale", () => {
-		expect(computeReference3DTextureSize(400, 300, 2)).toEqual({
+		expect(computeScene3DTextureSize(400, 300, 2)).toEqual({
 			width: 800,
 			height: 600,
 		});
 	});
 
 	it("should shrink uniformly so no side exceeds 2048", () => {
-		const size = computeReference3DTextureSize(4000, 1000, 4);
+		const size = computeScene3DTextureSize(4000, 1000, 4);
 		expect(size.width).toBe(2048);
 		expect(size.height).toBe(512);
 	});
 
 	it("should never collapse below 1px", () => {
-		expect(computeReference3DTextureSize(1, 1, 0.25)).toEqual({
+		expect(computeScene3DTextureSize(1, 1, 0.25)).toEqual({
 			width: 1,
 			height: 1,
 		});
@@ -243,11 +372,9 @@ describe("computeReference3DTextureSize", () => {
 // Test doubles
 // ---------------------------------------------------------------------------
 
-type FakeService = Reference3DServiceApi & {
+type FakeService = Scene3DServiceApi & {
 	renderScene: ReturnType<
-		typeof vi.fn<
-			(req: Reference3DRenderRequest) => Promise<Reference3DScenePixels>
-		>
+		typeof vi.fn<(req: Scene3DRenderRequest) => Promise<Scene3DPixels>>
 	>;
 	bumpEpoch: () => void;
 };
@@ -255,12 +382,13 @@ type FakeService = Reference3DServiceApi & {
 function createFakeService(): FakeService {
 	let epoch = 0;
 	return {
-		renderScene: vi.fn(async (request: Reference3DRenderRequest) => ({
+		renderScene: vi.fn(async (request: Scene3DRenderRequest) => ({
 			width: request.width,
 			height: request.height,
 			data: new Uint8Array(request.width * request.height * 4),
 		})),
 		raycastNode: vi.fn(() => null),
+		getNodeBounds: vi.fn(() => null),
 		getContextEpoch: () => epoch,
 		getAssetsEpoch: () => 0,
 		getFigureRig: vi.fn(() => null),
@@ -274,10 +402,10 @@ function createFakeService(): FakeService {
 
 function createRenderer(options: { context?: null } = {}) {
 	const service = createFakeService();
-	const references3d: Record<string, Reference3DDef> = {
+	const scenes3d: Record<string, Scene3DDef> = {
 		"scene-1": makeSceneDef(),
 	};
-	const context: Reference3DRenderContext = { service, references3d };
+	const context: Scene3DRenderContext = { service, scenes3d };
 
 	const assetState: AssetState = {
 		textureCache: new Map(),
@@ -304,20 +432,18 @@ function createRenderer(options: { context?: null } = {}) {
 		getBindGroup: vi.fn(() => ({}) as GPUBindGroup),
 		getTransformsBindGroup: vi.fn(() => ({}) as GPUBindGroup),
 		getParentGroupMap: vi.fn(() => new Map<string, string>()),
-		getReference3DContext: vi.fn(() =>
-			options.context === null ? null : context,
-		),
+		getScene3DContext: vi.fn(() => (options.context === null ? null : context)),
 	};
 
 	return {
-		renderer: new Reference3DElementRenderer(deps),
+		renderer: new Scene3DElementRenderer(deps),
 		deps,
 		service,
-		references3d,
+		scenes3d,
 	};
 }
 
-function makeSceneDef(overrides: Partial<Reference3DDef> = {}): Reference3DDef {
+function makeSceneDef(overrides: Partial<Scene3DDef> = {}): Scene3DDef {
 	return {
 		id: "scene-1",
 		nodes: [
@@ -336,12 +462,10 @@ function makeSceneDef(overrides: Partial<Reference3DDef> = {}): Reference3DDef {
 	};
 }
 
-function makeElement(
-	overrides: Partial<Reference3DElement> = {},
-): Reference3DElement {
+function makeElement(overrides: Partial<Scene3DElement> = {}): Scene3DElement {
 	return {
-		id: "reference3d-1",
-		type: "reference3d",
+		id: "scene3d-1",
+		type: "scene3d",
 		opacity: 1,
 		blendMode: "normal",
 		transform: createIdentityTransform(),
@@ -361,7 +485,7 @@ function makeElement(
 	};
 }
 
-function makeDocument(element: Reference3DElement): Document {
+function makeDocument(element: Scene3DElement): Document {
 	return {
 		id: "doc-1",
 		objects: { [element.id]: element },
@@ -371,7 +495,7 @@ function makeDocument(element: Reference3DElement): Document {
 		artboards: [],
 		brushPresets: [],
 		units: "px",
-		references3d: { "scene-1": makeSceneDef() },
+		scenes3d: { "scene-1": makeSceneDef() },
 	};
 }
 

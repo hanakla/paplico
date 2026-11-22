@@ -2,8 +2,8 @@ export { BucketFillTool } from "./BucketFillTool";
 export {
 	getCameraDistance,
 	getCameraOrbitAngles,
-	Reference3DTool,
-} from "./Reference3DTool";
+	Scene3DTool,
+} from "./Scene3DTool";
 export type { SelectionStyleSummary } from "./TextTool";
 export {
 	defaultTextEditState,

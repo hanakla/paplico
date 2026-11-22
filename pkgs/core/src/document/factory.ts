@@ -13,9 +13,9 @@ import {
 	type Layer,
 	type Lineart3DParams,
 	type MeshArtObject,
-	type Reference3DCamera,
-	type Reference3DElement,
 	type RepeatObject,
+	type Scene3DCamera,
+	type Scene3DElement,
 	type Viewport,
 } from "../schema";
 import type { WarpGeometry } from "../utils/geometry/generate/meshWarpShape";
@@ -224,7 +224,7 @@ export function createImageObject(
 	};
 }
 
-export function createReference3DElement(
+export function createScene3DElement(
 	params: {
 		sceneId: string;
 		x: number;
@@ -233,18 +233,18 @@ export function createReference3DElement(
 		height: number;
 	} & Partial<
 		Omit<
-			Reference3DElement,
+			Scene3DElement,
 			"type" | "id" | "sceneId" | "x" | "y" | "width" | "height"
 		>
 	>,
-): Reference3DElement {
+): Scene3DElement {
 	return {
-		id: generateUid("reference3d"),
-		type: "reference3d",
+		id: generateUid("scene3d"),
+		type: "scene3d",
 		opacity: 1,
 		blendMode: "normal",
 		transform: createIdentityTransform(),
-		camera: createDefaultReference3DCamera(),
+		camera: createDefaultScene3DCamera(),
 		displayMode: "lineart",
 		lineart: createDefaultLineart3DParams(),
 		...params,
@@ -314,7 +314,7 @@ export function createStrokeBrushSettings(
 // Helpers
 
 /** Oblique overhead view framed for human-scale scenes (1 unit = 1 m). */
-function createDefaultReference3DCamera(): Reference3DCamera {
+function createDefaultScene3DCamera(): Scene3DCamera {
 	return {
 		projection: "perspective",
 		position: [4, 3, 6],

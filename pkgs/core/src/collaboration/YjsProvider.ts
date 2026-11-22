@@ -8,6 +8,10 @@ import {
 	LATEST_SCHEMA_VERSION,
 	UNVERSIONED_SCHEMA_BASELINE,
 } from "../io/migrations";
+import {
+	LEGACY_SCENE3D_TYPE,
+	LEGACY_SCENES3D_KEY,
+} from "../io/migrations/20261122_mig_scene3d_rename";
 import type { MigrationContext } from "../io/migrations/context";
 import {
 	type AnyArtObject,
@@ -28,9 +32,9 @@ import {
 	type Layer,
 	type MeshArtObject,
 	type Path,
-	type Reference3DDef,
-	type Reference3DNode,
 	type RepeatObject,
+	type Scene3DDef,
+	type Scene3DNode,
 } from "../schema";
 import { Emitter } from "../utils/emitter";
 import {
@@ -257,7 +261,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	private yBrushPresets!: Y.Map<Y.Map<unknown>>;
 	private yAppearancePresets!: Y.Map<Y.Map<unknown>>;
 	private yDefs!: Y.Map<Y.Map<unknown>>;
-	private yReferences3d!: Y.Map<Y.Map<unknown>>;
+	private yScenes3d!: Y.Map<Y.Map<unknown>>;
 	private callbacks: YjsProviderCallbacks;
 	/** Meta stash consumed by the next captured undo stack item. */
 	private pendingUndoMeta: UndoStackMeta | null = null;
@@ -367,7 +371,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			// yObjects and continue to use the per-object delta path.
 			this.needsFullSync = true;
 		});
-		this.yReferences3d.observeDeep(() => {
+		this.yScenes3d.observeDeep(() => {
 			// Scene definition edits are committed on pointer-up (drag previews
 			// bypass Yjs), so the full-sync path is cheap enough here.
 			this.needsFullSync = true;
@@ -411,7 +415,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				this.yLayers,
 				this.yArtboards,
 				this.yDefs,
-				this.yReferences3d,
+				this.yScenes3d,
 				this.yAppearancePresets,
 			],
 			{
@@ -2366,7 +2370,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		this.yBrushPresets = this.ydoc.getMap("brushPresets");
 		this.yAppearancePresets = this.ydoc.getMap("appearancePresets");
 		this.yDefs = this.ydoc.getMap("defs");
-		this.yReferences3d = this.ydoc.getMap("references3d");
+		this.yScenes3d = this.ydoc.getMap("scenes3d");
 	}
 
 	/**
@@ -2475,6 +2479,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				if (this.yObjects.has(id)) continue;
 				this.yObjects.set(id, storedFieldsToYMap(objectToStoredFields(obj)));
 			}
+			renameLegacyScene3DStorage(this.ydoc);
 			this.yMeta.set("schemaVersion", LATEST_SCHEMA_VERSION);
 		}, ROOM_SCHEMA_MIGRATION_ORIGIN);
 		return "migrated";
@@ -2644,46 +2649,46 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		}, origin);
 	}
 
-	// --- References3D (shared 3D scene definitions) ---
+	// --- Scenes3D (shared 3D scene definitions) ---
 	//
-	// yReferences3d holds Reference3DDef entries keyed by scene id. Nodes are stored
+	// yScenes3d holds Scene3DDef entries keyed by scene id. Nodes are stored
 	// as a single JSON string per scene (scene-level last-write-wins). If
 	// concurrent node edits become a real problem, the upgrade path is to
 	// store nodes as per-node Y.Maps — same granularity shift yObjects made.
 
-	/** Serialize a Reference3DDef into a Y.Map (nodes as JSON string). */
-	private reference3DDefToYMap(def: Reference3DDef): Y.Map<unknown> {
-		return reference3DDefToYMap(def);
+	/** Serialize a Scene3DDef into a Y.Map (nodes as JSON string). */
+	private scene3DDefToYMap(def: Scene3DDef): Y.Map<unknown> {
+		return scene3DDefToYMap(def);
 	}
 
 	/** Create or replace a shared 3D scene definition. */
-	public setReference3D(def: Reference3DDef, origin?: unknown): void {
+	public setScene3D(def: Scene3DDef, origin?: unknown): void {
 		this.ydoc.transact(() => {
-			this.yReferences3d.set(def.id, this.reference3DDefToYMap(def));
+			this.yScenes3d.set(def.id, this.scene3DDefToYMap(def));
 		}, origin);
 	}
 
 	/** Replace the node list of an existing scene definition. */
-	public updateReference3DNodes(
+	public updateScene3DNodes(
 		sceneId: string,
-		nodes: readonly Reference3DNode[],
+		nodes: readonly Scene3DNode[],
 		origin?: unknown,
 	): void {
 		this.ydoc.transact(() => {
-			const yScene = this.yReferences3d.get(sceneId);
+			const yScene = this.yScenes3d.get(sceneId);
 			if (!yScene) return;
 			yScene.set("nodes", JSON.stringify(nodes));
 		}, origin);
 	}
 
 	/**
-	 * Delete a scene definition. Reference3DElements referencing the id are left
+	 * Delete a scene definition. Scene3DElements referencing the id are left
 	 * untouched (they render nothing until repointed or deleted), and figure
 	 * VRM binaries stay in document.files — EmbeddedFiles are shared assets.
 	 */
-	public deleteReference3D(sceneId: string, origin?: unknown): void {
+	public deleteScene3D(sceneId: string, origin?: unknown): void {
 		this.ydoc.transact(() => {
-			this.yReferences3d.delete(sceneId);
+			this.yScenes3d.delete(sceneId);
 		}, origin);
 	}
 
@@ -2814,9 +2819,9 @@ function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 		yDefs.set(defId, defEntryToYMap(entry));
 	}
 
-	const yReferences3d = ydoc.getMap<Y.Map<unknown>>("references3d");
-	for (const [sceneId, def] of Object.entries(doc.references3d ?? {})) {
-		yReferences3d.set(sceneId, reference3DDefToYMap(def));
+	const yScenes3d = ydoc.getMap<Y.Map<unknown>>("scenes3d");
+	for (const [sceneId, def] of Object.entries(doc.scenes3d ?? {})) {
+		yScenes3d.set(sceneId, scene3DDefToYMap(def));
 	}
 
 	const yMeta = ydoc.getMap<YDocumentMetaValue>("meta");
@@ -2842,12 +2847,33 @@ function defEntryToYMap(entry: DefEntry): Y.Map<unknown> {
 	return yMap;
 }
 
-function reference3DDefToYMap(def: Reference3DDef): Y.Map<unknown> {
+function scene3DDefToYMap(def: Scene3DDef): Y.Map<unknown> {
 	const yMap = new Y.Map<unknown>();
 	yMap.set("id", def.id);
 	if (def.name !== undefined) yMap.set("name", def.name);
 	yMap.set("nodes", JSON.stringify(def.nodes));
 	return yMap;
+}
+
+/**
+ * Move what a room stored under the former 3D scene names to the current
+ * ones. The extraction already reads the former names as the current ones,
+ * so comparing extracted documents finds nothing to rewrite here.
+ */
+function renameLegacyScene3DStorage(ydoc: Y.Doc): void {
+	for (const yObj of ydoc.getMap<Y.Map<unknown>>("objects").values()) {
+		if (yObj.get("type") === LEGACY_SCENE3D_TYPE) yObj.set("type", "scene3d");
+	}
+
+	const yLegacyScenes3d = ydoc.getMap<Y.Map<unknown>>(LEGACY_SCENES3D_KEY);
+	const yScenes3d = ydoc.getMap<Y.Map<unknown>>("scenes3d");
+	for (const [sceneId, yScene] of [...yLegacyScenes3d.entries()]) {
+		// A Y.Map cannot move between parents, so the scene is written anew.
+		if (!yScenes3d.has(sceneId)) {
+			yScenes3d.set(sceneId, new Y.Map(yScene.entries()));
+		}
+		yLegacyScenes3d.delete(sceneId);
+	}
 }
 
 function appearancePresetToYMap(preset: AppearancePreset): Y.Map<unknown> {
@@ -3047,7 +3073,7 @@ export function objectToStoredFields(
 			if (element.tiltToSpine !== undefined)
 				fields.tiltToSpine = element.tiltToSpine;
 			break;
-		case "reference3d":
+		case "scene3d":
 			fields.sceneId = element.sceneId;
 			fields.x = element.x;
 			fields.y = element.y;

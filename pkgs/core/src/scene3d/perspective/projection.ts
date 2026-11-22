@@ -1,7 +1,7 @@
 import {
 	type ElementTransform,
 	isIdentityTransform,
-	type Reference3DCamera,
+	type Scene3DCamera,
 	type Vec3,
 } from "../../schema";
 import {
@@ -10,14 +10,14 @@ import {
 } from "../../utils/geometry/space/coordinates";
 
 /**
- * Shared pinhole-camera projection math for the Reference3D subsystem.
+ * Shared pinhole-camera projection math for the Scene3D subsystem.
  *
- * Pure functions, three.js-free, always loaded (used by Reference3DTool and the
+ * Pure functions, three.js-free, always loaded (used by Scene3DTool and the
  * perspective-ruler vanishing point derivation). The camera model matches
- * Reference3DService exactly: fovDeg = vertical FOV, aspect = width / height,
+ * Scene3DService exactly: fovDeg = vertical FOV, aspect = width / height,
  * look-at basis with the camera's `up` reference.
  *
- * Element mapping follows Reference3DElementRenderer's quad blit: NDC maps
+ * Element mapping follows Scene3DElementRenderer's quad blit: NDC maps
  * linearly onto the untransformed local rect, and the composed element
  * transform (applyTransformToPoint around the rect center) carries local
  * coordinates onto the canvas.
@@ -79,7 +79,7 @@ export function normalize3(a: Vec3): Vec3 {
 
 // --- Camera projection ---
 
-export function cameraBasis(camera: Reference3DCamera): CameraBasis {
+export function cameraBasis(camera: Scene3DCamera): CameraBasis {
 	const forward = normalize3(sub3(camera.target, camera.position));
 	const upRef: Vec3 = camera.up ?? [0, 1, 0];
 	let right = cross3(forward, upRef);
@@ -89,10 +89,7 @@ export function cameraBasis(camera: Reference3DCamera): CameraBasis {
 }
 
 /** Half-height of the view frustum at the given depth (or the ortho half-height). */
-export function viewHalfHeightAt(
-	camera: Reference3DCamera,
-	depth: number,
-): number {
+export function viewHalfHeightAt(camera: Scene3DCamera, depth: number): number {
 	return camera.projection === "orthographic"
 		? (camera.orthoHeight ?? 2) / 2
 		: Math.tan((camera.fovDeg * Math.PI) / 360) * depth;
@@ -104,7 +101,7 @@ export function viewHalfHeightAt(
  */
 export function projectToNdc(
 	point: Vec3,
-	camera: Reference3DCamera,
+	camera: Scene3DCamera,
 	aspect: number,
 ): Vec2 | null {
 	const basis = cameraBasis(camera);

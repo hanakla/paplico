@@ -40,7 +40,7 @@ export type ToolType =
 	| "bucket-fill"
 	| "stroke-width-edit"
 	| "eyedropper"
-	| "reference3d";
+	| "scene3d";
 
 /** A shape the shape tool draws, with the parameters that shape needs. */
 export type ShapeOption =

@@ -164,7 +164,7 @@ export function computePaintHash(
 			// an extruded ancestor, so its hash never needs to vary.
 			return "repeat";
 		default:
-			// path / compound-path / mesh / reference3d: own fill/stroke filters only.
+			// path / compound-path / mesh / scene3d: own fill/stroke filters only.
 			return hashLeafPaintContent(
 				localAppearances(element.filters),
 				ctx.resolvePatternTexture,

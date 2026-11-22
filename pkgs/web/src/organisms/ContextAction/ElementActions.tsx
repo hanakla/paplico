@@ -55,13 +55,12 @@ export function ElementActions({
 	const blendsInSelection = selectedElements.filter(
 		(el) => el.type === "blend",
 	);
-	const references3dInSelection = selectedElements.filter(
-		(el) => el.type === "reference3d",
+	const scenes3dInSelection = selectedElements.filter(
+		(el) => el.type === "scene3d",
 	);
-	const firstReference3d = references3dInSelection[0];
+	const firstScene3d = scenes3dInSelection[0];
 	const lineartEnabled =
-		firstReference3d?.type === "reference3d" &&
-		firstReference3d.displayMode === "lineart";
+		firstScene3d?.type === "scene3d" && firstScene3d.displayMode === "lineart";
 	const canCreateBlend =
 		blendsInSelection.length === 0 && pathsInSelection.length >= 2;
 	const hasBlendInSelection = blendsInSelection.length > 0;
@@ -120,7 +119,7 @@ export function ElementActions({
 		const layerId = snap.currentLayerId;
 		if (!layerId) return;
 		const target = lineartEnabled ? "flat" : "lineart";
-		for (const el of references3dInSelection) {
+		for (const el of scenes3dInSelection) {
 			commands.updateElement(layerId, el.id, { displayMode: target });
 		}
 	});
@@ -214,7 +213,7 @@ export function ElementActions({
 					</Tooltip>
 				</>
 			)}
-			{references3dInSelection.length > 0 && (
+			{scenes3dInSelection.length > 0 && (
 				<Tooltip content={t("contextActions.toggleLineart")} side="bottom">
 					<IconButton
 						$size="md"

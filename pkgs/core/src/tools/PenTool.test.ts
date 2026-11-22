@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readStoredBrushSize } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
 import { createStrokeBrushSettings } from "../document/factory";
-import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
+import type { PerspectiveGuideData } from "../scene3d/perspective/vanishingPoints";
 import type {
 	Path,
 	RGBColor,
@@ -308,7 +308,7 @@ describe("PenTool", () => {
 
 	describe("Perspective snap", () => {
 		const horizontalGuides: PerspectiveGuideData = {
-			elementId: "reference3d-el",
+			elementId: "scene3d-el",
 			axes: [{ axis: "x", kind: "infinite", direction: { x: 1, y: 0 } }],
 			horizon: null,
 		};
@@ -396,7 +396,7 @@ describe("PenTool", () => {
 			const { tool } = createSnapPen(
 				{},
 				{
-					elementId: "reference3d-el",
+					elementId: "scene3d-el",
 					axes: [{ axis: "z", kind: "finite", point: { x: -1000, y: 0 } }],
 					horizon: null,
 				},
@@ -434,7 +434,7 @@ describe("PenTool", () => {
 			const { tool, context } = createSnapPen(
 				{},
 				{
-					elementId: "reference3d-el",
+					elementId: "scene3d-el",
 					axes: [{ axis: "z", kind: "finite", point: { x: -1000, y: 0 } }],
 					horizon: null,
 				},

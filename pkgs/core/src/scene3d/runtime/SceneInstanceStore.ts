@@ -1,4 +1,4 @@
-import type { Reference3DNode } from "../../schema";
+import type { Scene3DNode } from "../../schema";
 
 /**
  * Runtime bridge used by SceneInstanceStore to materialize scene nodes.
@@ -8,7 +8,7 @@ import type { Reference3DNode } from "../../schema";
 export interface SceneRuntimeAdapter<TScene, TObject> {
 	createScene(): TScene;
 	/** Build the runtime object for a node. Null = no visual (e.g. hidden floor). */
-	buildNode(node: Reference3DNode): TObject | null;
+	buildNode(node: Scene3DNode): TObject | null;
 	addToScene(scene: TScene, object: TObject): void;
 	removeFromScene(scene: TScene, object: TObject): void;
 	disposeNodeObject(object: TObject): void;
@@ -23,7 +23,7 @@ interface SceneInstance<TScene, TObject> {
 }
 
 /**
- * Holds one runtime scene per Reference3DDef and applies node-list changes
+ * Holds one runtime scene per Scene3DDef and applies node-list changes
  * incrementally: each node's JSON.stringify is compared against the last
  * applied form; only changed nodes are rebuilt and removed ids disposed.
  * Node counts are at most a few dozen, so a full scan per sync is fine.
@@ -39,7 +39,7 @@ export class SceneInstanceStore<TScene, TObject> {
 	) {}
 
 	/** Sync the node list into the scene instance, returning the scene. */
-	public sync(sceneId: string, nodes: readonly Reference3DNode[]): TScene {
+	public sync(sceneId: string, nodes: readonly Scene3DNode[]): TScene {
 		let instance = this.instances.get(sceneId);
 		if (!instance) {
 			instance = {

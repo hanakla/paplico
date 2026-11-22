@@ -391,8 +391,8 @@ export function Toolbar({
 		return () => document.removeEventListener("pointerdown", handler);
 	}, [transformPanelOpen]);
 
-	const handleReference3DToolClick = useEventCallback(() => {
-		tools.setCurrentTool("reference3d");
+	const handleScene3DToolClick = useEventCallback(() => {
+		tools.setCurrentTool("scene3d");
 	});
 
 	return (
@@ -657,14 +657,14 @@ export function Toolbar({
 						</IconButton>
 					</Tooltip>
 
-					<Tooltip content={t("toolbar.reference3dTool")} side={outwardSide}>
+					<Tooltip content={t("toolbar.scene3dTool")} side={outwardSide}>
 						<IconButton
-							aria-label={t("toolbar.reference3dTool")}
+							aria-label={t("toolbar.scene3dTool")}
 							$size="md"
 							$variant="ghost"
-							$pressed={snap.currentTool === "reference3d"}
+							$pressed={snap.currentTool === "scene3d"}
 							className="flex-none"
-							onClick={handleReference3DToolClick}
+							onClick={handleScene3DToolClick}
 						>
 							<Box size={16} />
 						</IconButton>

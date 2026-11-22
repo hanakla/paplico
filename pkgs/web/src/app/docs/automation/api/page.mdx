@@ -62,7 +62,7 @@ if let obj = paplico.activeDocument.findArtObject(uid: "abc") {
 | `compoundPath` | `sources` |
 | `blend` | `objectIds`、`renderOrder`、`spacing`、`spineSourceId`、`tiltToSpine` |
 | `mesh` | `vertices`、`faces`、`width` / `height` |
-| `reference3d` | `sceneId`、`camera`、`displayMode`、`lineart`、`lightDir` |
+| `scene3d` | `sceneId`、`camera`、`displayMode`、`lineart`、`lightDir` |
 
 テキストの `content` は段落の集まりで、段落は装飾の切れ目ごとに `runs` へ分かれています。この `run.text` は書き換えられるので、フォントや色はそのままに、文字だけ差し替えるということができます。組み込みの「Replace Text in Selection」がやっているのが、まさにこれです。
 

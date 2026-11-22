@@ -22,6 +22,7 @@ import { migTransformOrigin } from "./20260929_mig_transform_origin";
 import { migCornerRadiusArc } from "./20261012_mig_corner_radius_arc";
 import { migGuideOnAnyElement } from "./20261112_mig_guide_on_any_element";
 import { migDropFontStyle } from "./20261115_mig_drop_font_style";
+import { migScene3DRename } from "./20261122_mig_scene3d_rename";
 import type { MigrationContext } from "./context";
 
 export interface Migration {
@@ -64,6 +65,7 @@ const migrations: Migration[] = [
 	migCornerRadiusArc,
 	migGuideOnAnyElement,
 	migDropFontStyle,
+	migScene3DRename,
 ];
 
 /** Schema version a document has once every migration ran. */
@@ -93,6 +95,11 @@ export function applyMigrations(
 	doc: Document,
 	context?: MigrationContext,
 ): void {
+	// The earlier migrations measure elements with helpers that know a 3D
+	// scene only by its current type, so the rename has to land before them.
+	if ((doc.schemaVersion ?? 0) < migScene3DRename.version) {
+		migScene3DRename.migrate(doc);
+	}
 	for (const mig of migrations) applyMigration(doc, mig, context);
 }
 

@@ -822,10 +822,10 @@ describe("PAPF format", () => {
 		});
 	});
 
-	describe("references3d", () => {
-		it("roundtrips Document.references3d through serialize / open / toDocument", async () => {
+	describe("scenes3d", () => {
+		it("roundtrips Document.scenes3d through serialize / open / toDocument", async () => {
 			const doc = makeMinimalDoc({
-				references3d: {
+				scenes3d: {
 					"scene-1": {
 						id: "scene-1",
 						name: "Room",
@@ -858,15 +858,15 @@ describe("PAPF format", () => {
 			const blob = await serializeDocument(doc);
 			const restored = await (await openPapf(blob)).toDocument();
 
-			expect(restored.references3d).toEqual(doc.references3d);
+			expect(restored.scenes3d).toEqual(doc.scenes3d);
 		});
 
-		it("defaults references3d to {} when reading a doc that never had the field", async () => {
+		it("defaults scenes3d to {} when reading a doc that never had the field", async () => {
 			const doc = makeMinimalDoc();
-			// makeMinimalDoc does not set references3d intentionally.
+			// makeMinimalDoc does not set scenes3d intentionally.
 			const blob = await serializeDocument(doc);
 			const restored = await (await openPapf(blob)).toDocument();
-			expect(restored.references3d).toEqual({});
+			expect(restored.scenes3d).toEqual({});
 		});
 	});
 

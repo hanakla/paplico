@@ -5,7 +5,7 @@ import type {
 	Group,
 	MeshArtObject,
 	Path,
-	Reference3DElement,
+	Scene3DElement,
 	TextElement,
 } from "../schema";
 import { cloneElementsWithIdRemap } from "./cloneElements";
@@ -258,13 +258,13 @@ describe("cloneElementsWithIdRemap", () => {
 		expect(clonedGroup.childIds[1]).toBe(idMap.get("c1"));
 	});
 
-	it("should keep Reference3DElement.sceneId unchanged (duplicate = same shared scene, own camera)", () => {
-		// Intent: references3d defs are document-level shared resources. Duplicating
-		// a Reference3DElement must reference the SAME scene with an independent
+	it("should keep Scene3DElement.sceneId unchanged (duplicate = same shared scene, own camera)", () => {
+		// Intent: scenes3d defs are document-level shared resources. Duplicating
+		// a Scene3DElement must reference the SAME scene with an independent
 		// camera, so a copied manga panel shows the same room from its own angle.
-		const reference3d: Reference3DElement = {
+		const scene3d: Scene3DElement = {
 			id: "s1",
-			type: "reference3d",
+			type: "scene3d",
 			opacity: 1,
 			blendMode: "normal",
 			transform: IDENTITY_TRANSFORM,
@@ -282,14 +282,14 @@ describe("cloneElementsWithIdRemap", () => {
 			displayMode: "lineart",
 		};
 
-		const { cloned } = cloneElementsWithIdRemap([reference3d]);
-		const clonedScene = cloned[0] as Reference3DElement;
+		const { cloned } = cloneElementsWithIdRemap([scene3d]);
+		const clonedScene = cloned[0] as Scene3DElement;
 
 		expect(clonedScene.id).not.toBe("s1");
 		expect(clonedScene.sceneId).toBe("scene-room");
 		// Camera is deep-cloned, not aliased — the copy pans independently.
 		clonedScene.camera.position[0] = 99;
-		expect(reference3d.camera.position[0]).toBe(4);
+		expect(scene3d.camera.position[0]).toBe(4);
 	});
 
 	it("honors the mintId option", () => {

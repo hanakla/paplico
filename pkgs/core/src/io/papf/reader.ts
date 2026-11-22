@@ -21,6 +21,7 @@ import type {
 } from "../../timelapse/types";
 import { crc32, decompressDeflate } from "../binaryUtils";
 import { applyMigrations, LATEST_SCHEMA_VERSION } from "../migrations";
+import { LEGACY_SCENES3D_KEY } from "../migrations/20261122_mig_scene3d_rename";
 import type { MigrationContext } from "../migrations/context";
 import {
 	type Codec,
@@ -559,7 +560,7 @@ export class PapfFile {
 			rasterizationDpi: docMeta.rasterizationDpi,
 			units: docMeta.units ?? DEFAULT_LENGTH_UNIT,
 			defs: docMeta.defs ?? {},
-			references3d: docMeta.references3d ?? {},
+			scenes3d: docMeta.scenes3d ?? docMeta[LEGACY_SCENES3D_KEY] ?? {},
 		};
 	}
 

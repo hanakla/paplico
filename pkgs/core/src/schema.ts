@@ -505,7 +505,7 @@ export type AnyArtObject =
 	| MeshArtObject
 	| BlendObject
 	| RepeatObject
-	| Reference3DElement;
+	| Scene3DElement;
 
 /**
  * Editing sessions that expand their subject onto a throwaway layer so the
@@ -636,10 +636,10 @@ export interface Document {
 	 */
 	defs?: Record<string, DefEntry>;
 	/**
-	 * Shared 3D scene definitions referenced by Reference3DElement.sceneId.
+	 * Shared 3D scene definitions referenced by Scene3DElement.sceneId.
 	 * Optional — absent means no 3D scenes (treated as `{}`).
 	 */
-	references3d?: Record<string, Reference3DDef>;
+	scenes3d?: Record<string, Scene3DDef>;
 }
 
 export interface HdrSettings {
@@ -766,7 +766,7 @@ export interface StrokeAppearance extends Appearance<StrokeParams> {
 
 /**
  * Lit-surface material shared by 3D-ish renderers (extrude appearance now,
- * a future first-class Mesh3DObject later). Not part of Reference3D.
+ * a future first-class Mesh3DObject later). Not part of Scene3D.
  */
 export interface Material3D {
 	shading: "flat" | "lambert" | "blinn-phong";
@@ -1554,7 +1554,7 @@ export interface MeshArtObject extends ArtObject {
 	outlineOnRelease?: boolean;
 }
 
-// --- 3D Types (Reference3D subsystem) ---
+// --- 3D Types (Scene3D subsystem) ---
 // World unit: 1 unit = 1 meter (matches the VRM / glTF convention).
 
 export type Vec2 = [x: number, y: number];
@@ -1579,7 +1579,7 @@ export interface VRMPoseData {
 	hipsPosition?: Vec3;
 }
 
-export type Reference3DPrimitiveShape =
+export type Scene3DPrimitiveShape =
 	| "box"
 	| "sphere"
 	| "cylinder"
@@ -1591,11 +1591,11 @@ export type Reference3DPrimitiveShape =
  * design so future node kinds (e.g. "mesh" referencing an EmbeddedFile) can
  * be added without restructuring.
  */
-export type Reference3DNode =
+export type Scene3DNode =
 	| {
 			id: string;
 			kind: "primitive";
-			shape: Reference3DPrimitiveShape;
+			shape: Scene3DPrimitiveShape;
 			transform: Transform3D;
 			/** Shape-specific size overrides (meters). Defaults applied per shape. */
 			params?: Record<string, number>;
@@ -1617,17 +1617,17 @@ export type Reference3DNode =
 	  };
 
 /**
- * Document-level shared 3D scene definition. Reference3DElements reference a
+ * Document-level shared 3D scene definition. Scene3DElements reference a
  * scene by id and carry their own camera, so one scene can appear in
  * multiple panels from different angles.
  */
-export interface Reference3DDef {
+export interface Scene3DDef {
 	id: string;
 	name?: string;
-	nodes: Reference3DNode[];
+	nodes: Scene3DNode[];
 }
 
-export interface Reference3DCamera {
+export interface Scene3DCamera {
 	projection: "perspective" | "orthographic";
 	position: Vec3;
 	target: Vec3;
@@ -1652,12 +1652,12 @@ export interface Lineart3DParams {
  * From the 2D pipeline's perspective this behaves like an ImageObject —
  * the 3D subsystem renders the scene into a texture off the main pipeline.
  */
-export interface Reference3DElement extends ArtObject {
-	type: "reference3d";
-	/** Document.references3d key of the scene this element renders. */
+export interface Scene3DElement extends ArtObject {
+	type: "scene3d";
+	/** Document.scenes3d key of the scene this element renders. */
 	sceneId: string;
 	/** Per-element camera (one scene, many cameras). */
-	camera: Reference3DCamera;
+	camera: Scene3DCamera;
 	/** World coordinate (center X) */
 	x: number;
 	/** World coordinate (center Y) */
@@ -2137,10 +2137,8 @@ export function isMesh(element: AnyArtObject): element is MeshArtObject {
 	return element.type === "mesh";
 }
 
-export function isReference3D(
-	element: AnyArtObject,
-): element is Reference3DElement {
-	return element.type === "reference3d";
+export function isScene3D(element: AnyArtObject): element is Scene3DElement {
+	return element.type === "scene3d";
 }
 
 // --- FillColor type guards ---

@@ -9,7 +9,7 @@
  *    TextElement.axisBinding.pathObjectId/clipPathId/flow.nextTextElementId).
  *  - Orphaned embedded files: `doc.files` entries whose `uid` is not
  *    referenced by any `fileUid` field reachable from the surviving objects,
- *    `doc.brushPresets`, `doc.colorProfile`, or `doc.references3d`.
+ *    `doc.brushPresets`, `doc.colorProfile`, or `doc.scenes3d`.
  *
  * Optionally clears all timelapse data with `--clear-timelapse`.
  *

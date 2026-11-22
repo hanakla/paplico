@@ -177,7 +177,7 @@ describe("Lock system integration", () => {
 				i1: { ...makePath("i1"), type: "image" } as unknown as AnyArtObject,
 				r1: {
 					...makePath("r1"),
-					type: "reference3d",
+					type: "scene3d",
 				} as unknown as AnyArtObject,
 			});
 

@@ -46,7 +46,7 @@ export function AssetPanel() {
 	const t = useTranslation();
 	const paplico = usePaplico();
 	const { document: doc, selectedElementIds } = useSnapshot(paplico.uiState);
-	const { objects, references3d, files } = doc;
+	const { objects, scenes3d, files } = doc;
 	const selectedFileUids = new Set(
 		selectedElementIds.flatMap((id) => {
 			const element = objects[id];
@@ -73,7 +73,7 @@ export function AssetPanel() {
 	});
 
 	const handleSelectElements = useEventCallback((uid: string) => {
-		const elementIds = collectAssetElementIds({ objects, references3d }, uid);
+		const elementIds = collectAssetElementIds({ objects, scenes3d }, uid);
 		// Selecting nothing leaves the former selection in place, and the view
 		// would move to it
 		if (elementIds.length === 0) return;
@@ -108,9 +108,9 @@ export function AssetPanel() {
 	}, [doc]);
 
 	const assetFiles = useMemo(() => {
-		const assetUids = collectAssetFileUids({ objects, references3d });
+		const assetUids = collectAssetFileUids({ objects, scenes3d });
 		return files.filter((file) => assetUids.has(file.uid));
-	}, [objects, references3d, files]);
+	}, [objects, scenes3d, files]);
 	const firstSelectedFileUid = assetFiles.find((file) =>
 		selectedFileUids.has(file.uid),
 	)?.uid;

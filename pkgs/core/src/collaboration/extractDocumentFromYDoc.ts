@@ -3,6 +3,10 @@ import type { ProofProfileRef, RenderingIntent } from "../color/types";
 import { createIdentityTransform } from "../document/factory";
 import { DEFAULT_LENGTH_UNIT, isLengthUnit } from "../document/units";
 import {
+	LEGACY_SCENE3D_TYPE,
+	LEGACY_SCENES3D_KEY,
+} from "../io/migrations/20261122_mig_scene3d_rename";
+import {
 	type AnyArtObject,
 	type AppearancePreset,
 	type Artboard,
@@ -26,9 +30,9 @@ import {
 	normalizeAppearanceFields,
 	type ObjectMask,
 	type Path,
-	type Reference3DDef,
-	type Reference3DElement,
 	type RepeatObject,
+	type Scene3DDef,
+	type Scene3DElement,
 	type TextElement,
 } from "../schema";
 import { safeJSONParse } from "../utils/lang";
@@ -165,18 +169,18 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 			} satisfies BlendObject;
 		}
 
-		case "reference3d":
+		// A room or a timelapse recorded before the rename stores the former type.
+		case LEGACY_SCENE3D_TYPE:
+		case "scene3d":
 			return {
 				...base,
-				type: "reference3d",
+				type: "scene3d",
 				sceneId: yMap.get("sceneId") as string,
 				x: yMap.get("x") as number,
 				y: yMap.get("y") as number,
 				width: yMap.get("width") as number,
 				height: yMap.get("height") as number,
-				displayMode: yMap.get(
-					"displayMode",
-				) as Reference3DElement["displayMode"],
+				displayMode: yMap.get("displayMode") as Scene3DElement["displayMode"],
 				camera: JSON.parse(yMap.get("camera") as string),
 				lineart: yMap.has("lineart")
 					? JSON.parse(yMap.get("lineart") as string)
@@ -185,7 +189,7 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 					? JSON.parse(yMap.get("lightDir") as string)
 					: undefined,
 				includeInExport: yMap.get("includeInExport") as boolean | undefined,
-			} satisfies Reference3DElement;
+			} satisfies Scene3DElement;
 
 		case "repeat":
 			return {
@@ -237,7 +241,7 @@ export function extractDocumentFromYDoc(
 	const yBrushPresets = ydoc.getMap<Y.Map<unknown>>("brushPresets");
 	const yAppearancePresets = ydoc.getMap<Y.Map<unknown>>("appearancePresets");
 	const yDefs = ydoc.getMap<Y.Map<unknown>>("defs");
-	const yReferences3d = ydoc.getMap<Y.Map<unknown>>("references3d");
+	const yScenes3d = ydoc.getMap<Y.Map<unknown>>("scenes3d");
 
 	// objects: Y.Map<Y.Map<unknown>> → Record<string, AnyArtObject>
 	const objects: Record<string, AnyArtObject> = {};
@@ -300,11 +304,17 @@ export function extractDocumentFromYDoc(
 		if (entry) defs[defId] = entry;
 	}
 
-	// references3d: Y.Map<Y.Map<unknown>> → Record<string, Reference3DDef>
-	const references3d: Record<string, Reference3DDef> = {};
-	for (const [sceneId, yScene] of yReferences3d.entries()) {
-		const def = yMapToReference3DDef(yScene);
-		if (def) references3d[sceneId] = def;
+	// scenes3d: Y.Map<Y.Map<unknown>> → Record<string, Scene3DDef>
+	const scenes3d: Record<string, Scene3DDef> = {};
+	// A room or a timelapse recorded before the rename keeps its scenes under
+	// the former root map.
+	const yLegacyScenes3d = ydoc.getMap<Y.Map<unknown>>(LEGACY_SCENES3D_KEY);
+	for (const [sceneId, yScene] of [
+		...yLegacyScenes3d.entries(),
+		...yScenes3d.entries(),
+	]) {
+		const def = yMapToScene3DDef(yScene);
+		if (def) scenes3d[sceneId] = def;
 	}
 
 	const hdr = yMeta.has("hdr")
@@ -373,7 +383,7 @@ export function extractDocumentFromYDoc(
 		rasterizationDpi,
 		units,
 		defs,
-		references3d,
+		scenes3d,
 	};
 }
 
@@ -489,10 +499,10 @@ function isValidDefKind(value: unknown): value is DefKind {
 }
 
 /**
- * Deserialize a Yjs reference3d entry (nodes stored as a JSON string). Returns
+ * Deserialize a Yjs scene3d entry (nodes stored as a JSON string). Returns
  * null if required fields are missing or the nodes JSON is malformed.
  */
-function yMapToReference3DDef(yScene: Y.Map<unknown>): Reference3DDef | null {
+function yMapToScene3DDef(yScene: Y.Map<unknown>): Scene3DDef | null {
 	const id = yScene.get("id");
 	const nodesRaw = yScene.get("nodes");
 	if (typeof id !== "string" || typeof nodesRaw !== "string") return null;

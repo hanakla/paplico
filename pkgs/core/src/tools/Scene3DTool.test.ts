@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type IKRigData, quatToAxisAngle } from "../reference3d/vrm/ikSolver";
 import type { UIOverlay, UIPrimitive } from "../renderer/ui/primitives";
 import { UI_THEME } from "../renderer/ui/theme";
+import { type IKRigData, quatToAxisAngle } from "../scene3d/vrm/ikSolver";
 import type {
 	Quat,
-	Reference3DCamera,
-	Reference3DDef,
-	Reference3DElement,
-	Reference3DNode,
+	Scene3DCamera,
+	Scene3DDef,
+	Scene3DElement,
+	Scene3DNode,
 	Vec3,
 } from "../schema";
 import {
@@ -21,28 +21,29 @@ import {
 	testViewport,
 } from "../testUtils/pointerEvent";
 import { brandWorldBBox } from "../utils/geometry/primitives/box";
-import { Reference3DController } from "./Reference3DController";
-import { Reference3DTool } from "./Reference3DTool";
+import { Scene3DController } from "./Scene3DController";
+import { Scene3DTool } from "./Scene3DTool";
 
-const GIZMO_KEY = "reference3d/gizmo";
-const EDIT_BOUNDS_KEY = "reference3d/edit-bounds";
+const GIZMO_KEY = "scene3d/gizmo";
+const EDIT_BOUNDS_KEY = "scene3d/edit-bounds";
 
 interface Harness {
-	tool: Reference3DTool;
+	tool: Scene3DTool;
 	context: MockToolContext;
-	controller: Reference3DController;
-	element: Reference3DElement;
-	def: Reference3DDef;
+	controller: Scene3DController;
+	element: Scene3DElement;
+	def: Scene3DDef;
 }
 
-describe("Reference3DTool", () => {
-	let tool: Reference3DTool;
+describe("Scene3DTool", () => {
+	let tool: Scene3DTool;
 	let context: MockToolContext;
-	let controller: Reference3DController;
-	let element: Reference3DElement;
+	let controller: Scene3DController;
+	let element: Scene3DElement;
+	let def: Scene3DDef;
 
 	beforeEach(() => {
-		({ tool, context, controller, element } = createHarness());
+		({ tool, context, controller, element, def } = createHarness());
 	});
 
 	function down(x: number, y: number, overrides = {}): void {
@@ -67,19 +68,19 @@ describe("Reference3DTool", () => {
 
 	describe("entering edit mode", () => {
 		it("should create a new scene and enter edit when clicking empty canvas", () => {
-			context.reference3dCreate.mockReturnValue(element);
+			context.scene3dCreate.mockReturnValue(element);
 
 			down(100, 100);
 			up(100, 100);
 
 			// screen(100,100) → world(-300,200)
-			expect(context.reference3dCreate.mock.calls[0]).toEqual([-300, 200]);
+			expect(context.scene3dCreate.mock.calls[0]).toEqual([-300, 200]);
 			expect(controller.isEditing()).toBe(true);
 			expect(controller.getEditingElementId()).toBe(element.id);
 		});
 
 		it("should size the new element by the drag rectangle", () => {
-			context.reference3dCreate.mockReturnValue(element);
+			context.scene3dCreate.mockReturnValue(element);
 
 			down(100, 100);
 			move(300, 200);
@@ -87,18 +88,18 @@ describe("Reference3DTool", () => {
 
 			// screen(100,100) → world(-300,200), screen(300,200) → world(-100,100):
 			// center (-200,150), size 200×100
-			expect(context.reference3dCreate.mock.calls[0]).toEqual([
+			expect(context.scene3dCreate.mock.calls[0]).toEqual([
 				-200, 150, 200, 100,
 			]);
 			expect(controller.isEditing()).toBe(true);
 		});
 
-		it("should enter edit for an existing reference3d element under the pointer", () => {
+		it("should enter edit for an existing scene3d element under the pointer", () => {
 			context.findElementAtPoint.mockReturnValue(element);
 
 			down(400, 300);
 
-			expect(context.reference3dCreate).not.toHaveBeenCalled();
+			expect(context.scene3dCreate).not.toHaveBeenCalled();
 			expect(controller.getEditingElementId()).toBe(element.id);
 		});
 
@@ -107,7 +108,7 @@ describe("Reference3DTool", () => {
 
 			down(400, 300);
 
-			expect(context.reference3dCreate).not.toHaveBeenCalled();
+			expect(context.scene3dCreate).not.toHaveBeenCalled();
 			expect(controller.isEditing()).toBe(false);
 		});
 
@@ -116,7 +117,7 @@ describe("Reference3DTool", () => {
 
 			down(400, 300);
 
-			expect(context.reference3dSetGuideSource.mock.calls.at(-1)).toEqual([
+			expect(context.scene3dSetGuideSource.mock.calls.at(-1)).toEqual([
 				element.id,
 			]);
 		});
@@ -171,7 +172,7 @@ describe("Reference3DTool", () => {
 	describe("tool switching", () => {
 		it("should end the edit session on dispose so re-selecting the tool creates a second scene", () => {
 			// First scene: clicking empty canvas creates it and enters edit.
-			context.reference3dCreate.mockReturnValue(element);
+			context.scene3dCreate.mockReturnValue(element);
 			down(100, 100);
 			up(100, 100);
 			expect(controller.isEditing()).toBe(true);
@@ -182,20 +183,20 @@ describe("Reference3DTool", () => {
 			tool.dispose();
 			expect(controller.isEditing()).toBe(false);
 
-			// Re-selecting the Reference3D tool and clicking another empty spot
+			// Re-selecting the Scene3D tool and clicking another empty spot
 			// must create a second scene instead of orbiting the first one.
-			const second: Reference3DElement = {
+			const second: Scene3DElement = {
 				...makeElement(),
-				id: "reference3d-el-2",
+				id: "scene3d-el-2",
 				sceneId: "scene-2",
 			};
-			context.reference3dCreate.mockReturnValue(second);
-			const nextTool = new Reference3DTool(context);
+			context.scene3dCreate.mockReturnValue(second);
+			const nextTool = new Scene3DTool(context);
 			pointerDown(nextTool, 500, 400);
 			pointerUp(nextTool, 500, 400);
 
-			expect(context.reference3dCreate).toHaveBeenCalledTimes(2);
-			expect(controller.getEditingElementId()).toBe("reference3d-el-2");
+			expect(context.scene3dCreate).toHaveBeenCalledTimes(2);
+			expect(controller.getEditingElementId()).toBe("scene3d-el-2");
 		});
 	});
 
@@ -210,10 +211,10 @@ describe("Reference3DTool", () => {
 
 			expect(context.updateElement).not.toHaveBeenCalled();
 			const [previewId, camera] =
-				context.reference3dPreviewCamera.mock.calls.at(-1)!;
+				context.scene3dPreviewCamera.mock.calls.at(-1)!;
 			expect(previewId).toBe(element.id);
 			expect(camera).not.toBeNull();
-			const preview = camera as Reference3DCamera;
+			const preview = camera as Scene3DCamera;
 			// Orbit keeps the target and the distance to it; the position moves.
 			expect(preview.target).toEqual(element.camera.target);
 			expect(preview.position).not.toEqual(element.camera.position);
@@ -227,8 +228,8 @@ describe("Reference3DTool", () => {
 			down(400, 300);
 			move(450, 300);
 
-			const [, camera] = context.reference3dPreviewCamera.mock.calls.at(-1)!;
-			const preview = camera as Reference3DCamera;
+			const [, camera] = context.scene3dPreviewCamera.mock.calls.at(-1)!;
+			const preview = camera as Scene3DCamera;
 			// Start position [4,3,6]: azimuth increases → +X side, -Z side.
 			expect(preview.position[0]).toBeGreaterThan(element.camera.position[0]);
 			expect(preview.position[2]).toBeLessThan(element.camera.position[2]);
@@ -244,10 +245,10 @@ describe("Reference3DTool", () => {
 			expect(context.updateElement).toHaveBeenCalledOnce();
 			const [committedId, updates] = context.updateElement.mock.calls[0];
 			expect(committedId).toBe(element.id);
-			const committed = (updates as { camera: Reference3DCamera }).camera;
+			const committed = (updates as { camera: Scene3DCamera }).camera;
 			expect(committed.position).not.toEqual(element.camera.position);
 			// Preview cleared after the commit.
-			expect(context.reference3dPreviewCamera.mock.calls.at(-1)).toEqual([
+			expect(context.scene3dPreviewCamera.mock.calls.at(-1)).toEqual([
 				element.id,
 				null,
 			]);
@@ -265,7 +266,7 @@ describe("Reference3DTool", () => {
 			move(500, 300);
 
 			expect(pressEscape()).toBe(true);
-			expect(context.reference3dPreviewCamera.mock.calls.at(-1)).toEqual([
+			expect(context.scene3dPreviewCamera.mock.calls.at(-1)).toEqual([
 				element.id,
 				null,
 			]);
@@ -284,9 +285,9 @@ describe("Reference3DTool", () => {
 			down(400, 300, { shiftKey: true });
 			move(430, 320);
 
-			const camera = context.reference3dPreviewCamera.mock.calls.at(
+			const camera = context.scene3dPreviewCamera.mock.calls.at(
 				-1,
-			)![1] as Reference3DCamera;
+			)![1] as Scene3DCamera;
 			expect(camera.target).not.toEqual(element.camera.target);
 			const positionDelta = sub(camera.position, element.camera.position);
 			const targetDelta = sub(camera.target, element.camera.target);
@@ -305,9 +306,9 @@ describe("Reference3DTool", () => {
 			down(400, 300, { button: 2 });
 			move(430, 320);
 
-			const camera = context.reference3dPreviewCamera.mock.calls.at(
+			const camera = context.scene3dPreviewCamera.mock.calls.at(
 				-1,
-			)![1] as Reference3DCamera;
+			)![1] as Scene3DCamera;
 			expect(camera.target).not.toEqual(element.camera.target);
 			const positionDelta = sub(camera.position, element.camera.position);
 			const targetDelta = sub(camera.target, element.camera.target);
@@ -327,7 +328,7 @@ describe("Reference3DTool", () => {
 
 			expect(context.updateElement).toHaveBeenCalledOnce();
 			const [, updates] = context.updateElement.mock.calls[0];
-			const camera = (updates as { camera: Reference3DCamera }).camera;
+			const camera = (updates as { camera: Scene3DCamera }).camera;
 			expect(camera.target).not.toEqual(element.camera.target);
 			const positionDelta = sub(camera.position, element.camera.position);
 			const targetDelta = sub(camera.target, element.camera.target);
@@ -340,7 +341,7 @@ describe("Reference3DTool", () => {
 			tool.moveCameraAlongAxis("y", 1);
 
 			const [, updates] = context.updateElement.mock.calls[0];
-			const camera = (updates as { camera: Reference3DCamera }).camera;
+			const camera = (updates as { camera: Scene3DCamera }).camera;
 			const positionDelta = sub(camera.position, element.camera.position);
 			const targetDelta = sub(camera.target, element.camera.target);
 			for (let i = 0; i < 3; i++) {
@@ -352,7 +353,7 @@ describe("Reference3DTool", () => {
 			tool.moveCameraAlongAxis("z", 1);
 
 			const [, updates] = context.updateElement.mock.calls[0];
-			const camera = (updates as { camera: Reference3DCamera }).camera;
+			const camera = (updates as { camera: Scene3DCamera }).camera;
 			expect(camera.target).toEqual(element.camera.target);
 			expect(distance(camera.position, camera.target)).toBeLessThan(
 				distance(element.camera.position, element.camera.target),
@@ -364,7 +365,7 @@ describe("Reference3DTool", () => {
 			tool.moveCameraAlongAxis("x", 2);
 
 			const [, updates] = context.updateElement.mock.calls.at(-1)!;
-			const camera = (updates as { camera: Reference3DCamera }).camera;
+			const camera = (updates as { camera: Scene3DCamera }).camera;
 			// Second call's offset (2) replaces the first (1) against the same
 			// pinned base — a naive per-call accumulation would total 3.
 			expect(distance(camera.position, element.camera.position)).toBeCloseTo(
@@ -380,20 +381,220 @@ describe("Reference3DTool", () => {
 			const [, firstUpdate] = context.updateElement.mock.calls[0];
 			context.getElement.mockReturnValue({
 				...element,
-				camera: (firstUpdate as { camera: Reference3DCamera }).camera,
+				camera: (firstUpdate as { camera: Scene3DCamera }).camera,
 			});
 			tool.endCameraAxisMove();
 
 			tool.moveCameraAlongAxis("x", 1);
 
 			const [, updates] = context.updateElement.mock.calls.at(-1)!;
-			const camera = (updates as { camera: Reference3DCamera }).camera;
+			const camera = (updates as { camera: Scene3DCamera }).camera;
 			// Two separate 1-unit drags from the committed result each time,
 			// totaling 2 units from the original camera.
 			expect(distance(camera.position, element.camera.position)).toBeCloseTo(
 				2,
 				6,
 			);
+		});
+	});
+
+	describe("scene editor", () => {
+		beforeEach(() => {
+			tool.enterEditorForElement(element);
+		});
+
+		function wheel(x: number, y: number, deltaY: number) {
+			return (
+				tool.onWheel?.(
+					{ x, y, deltaY, ctrlKey: false },
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				) ?? false
+			);
+		}
+
+		it("should start from the element's camera", () => {
+			expect(controller.getEditorCamera()).toEqual(element.camera);
+		});
+
+		it("should orbit its own camera and leave the element's camera alone", () => {
+			down(400, 300);
+			move(450, 310);
+			up(450, 310);
+
+			const camera = controller.getEditorCamera()!;
+			expect(camera.target).toEqual(element.camera.target);
+			expect(camera.position).not.toEqual(element.camera.position);
+			expect(context.updateElement).not.toHaveBeenCalled();
+			expect(context.scene3dPreviewCamera).not.toHaveBeenCalled();
+		});
+
+		it("should dolly on a wheel anywhere on the canvas without writing the element", () => {
+			// screen(50,50) lies outside the element's 400×300 rect.
+			expect(wheel(50, 50, -120)).toBe(true);
+
+			const camera = controller.getEditorCamera()!;
+			expect(distance(camera.position, camera.target)).toBeLessThan(
+				distance(element.camera.position, element.camera.target),
+			);
+			expect(context.updateElement).not.toHaveBeenCalled();
+		});
+
+		it("should move only its own camera from the panel's camera controls", () => {
+			tool.setCameraZoom(3);
+			tool.setCameraOrbit(30, 10);
+			tool.moveCameraAlongAxis("x", 1);
+			tool.endCameraAxisMove();
+
+			expect(controller.getEditorCamera()).not.toEqual(element.camera);
+			expect(context.updateElement).not.toHaveBeenCalled();
+		});
+
+		it("should put the camera back where the drag started on Escape", () => {
+			const before = controller.getEditorCamera();
+			down(400, 300);
+			move(450, 310);
+
+			expect(pressEscape()).toBe(true);
+
+			expect(controller.getEditorCamera()).toEqual(before);
+		});
+
+		it("should pick nodes outside the element's frame, in the frame's view extended", () => {
+			context.scene3dRaycastNode.mockReturnValue("node-box");
+
+			// screen(50,50) → world(-350,250) → NDC (-1.75, 1.667) of the
+			// 400×300 frame: outside it, on the same projection.
+			down(50, 50);
+
+			const request = context.scene3dRaycastNode.mock.calls[0][0];
+			expect(request.ndcX).toBeCloseTo(-1.75, 6);
+			expect(request.ndcY).toBeCloseTo(250 / 150, 6);
+			expect(request.aspect).toBeCloseTo(400 / 300, 6);
+			expect(request.camera).toEqual(controller.getEditorCamera());
+			expect(controller.getSelectedNodeId()).toBe("node-box");
+		});
+
+		it("should snap an orbit to the nearest axis view while Shift is held", () => {
+			down(400, 300);
+			pointerMove(tool, 420, 290, { shiftKey: true });
+
+			const camera = controller.getEditorCamera()!;
+			const [x, y, z] = [0, 1, 2].map(
+				(i) => camera.position[i] - camera.target[i],
+			);
+			// Start [4,2,6] off the target: the nearest axis view is the front.
+			expect(x).toBeCloseTo(0, 6);
+			expect(y).toBeCloseTo(0, 6);
+			expect(z).toBeGreaterThan(0);
+			expect(distance(camera.position, camera.target)).toBeCloseTo(
+				distance(element.camera.position, element.camera.target),
+				6,
+			);
+		});
+
+		it("should not snap an orbit inside the element's frame edit", () => {
+			tool.enterEditModeForElement(element);
+			down(400, 300);
+			pointerMove(tool, 420, 290, { shiftKey: true });
+
+			const [, camera] = context.scene3dPreviewCamera.mock.calls.at(-1)!;
+			const preview = camera as Scene3DCamera;
+			expect(preview.position[0] - preview.target[0]).not.toBeCloseTo(0, 3);
+		});
+
+		it("should not frame the element or take over the perspective guides", () => {
+			expect(lastEditBoundsOverlay(context)).toBeNull();
+			expect(context.scene3dSetGuideSource.mock.calls.at(-1)).toEqual([null]);
+		});
+
+		it("should drop its camera when the session ends", () => {
+			const cameras: Array<Scene3DCamera | null> = [];
+			controller.onEditorCameraChange = (camera) => cameras.push(camera);
+
+			pressEscape();
+
+			expect(controller.getEditorCamera()).toBeNull();
+			expect(cameras).toEqual([null]);
+			expect(context.updateElement).not.toHaveBeenCalled();
+		});
+
+		it("should edit inside the frame again when the element is entered with the tool", () => {
+			tool.enterEditModeForElement(element);
+
+			down(400, 300);
+			move(450, 310);
+			up(450, 310);
+
+			expect(controller.getEditorCamera()).toBeNull();
+			expect(context.updateElement).toHaveBeenCalledOnce();
+		});
+	});
+
+	describe("framing the camera (ActionsPanel buttons)", () => {
+		const BOUNDS = { min: [9, 0, -1], max: [11, 2, 1] } satisfies {
+			min: Vec3;
+			max: Vec3;
+		};
+
+		beforeEach(() => {
+			tool.enterEditModeForElement(element);
+			context.scene3dGetNodeBounds.mockReturnValue(BOUNDS);
+		});
+
+		function committedCamera(): Scene3DCamera {
+			return (
+				context.updateElement.mock.calls.at(-1)![1] as { camera: Scene3DCamera }
+			).camera;
+		}
+
+		it("should aim at the scene's centre, keeping the view direction, at the distance it fits", () => {
+			tool.frameScene();
+
+			expect(context.scene3dGetNodeBounds.mock.calls[0][0].nodeId).toBe(
+				undefined,
+			);
+			const camera = committedCamera();
+			expect(camera.target).toEqual([10, 1, 0]);
+			const before = distance(element.camera.position, element.camera.target);
+			const after = distance(camera.position, camera.target);
+			for (const i of [0, 1, 2]) {
+				expect((camera.position[i] - camera.target[i]) / after).toBeCloseTo(
+					(element.camera.position[i] - element.camera.target[i]) / before,
+					6,
+				);
+			}
+			// Bounding sphere √3 m in a 50° view: √3 / sin(25°).
+			expect(after).toBeCloseTo(
+				Math.sqrt(3) / Math.sin((25 * Math.PI) / 180),
+				6,
+			);
+		});
+
+		it("should measure the selected node alone", () => {
+			controller.selectNode("node-box");
+
+			tool.frameSelectedNode();
+
+			expect(context.scene3dGetNodeBounds.mock.calls[0][0].nodeId).toBe(
+				"node-box",
+			);
+			expect(committedCamera().target).toEqual([10, 1, 0]);
+		});
+
+		it("should do nothing for the selection while no node is selected", () => {
+			tool.frameSelectedNode();
+
+			expect(context.updateElement).not.toHaveBeenCalled();
+		});
+
+		it("should leave the camera alone while the nodes have no geometry yet", () => {
+			context.scene3dGetNodeBounds.mockReturnValue(null);
+
+			tool.frameScene();
+
+			expect(context.updateElement).not.toHaveBeenCalled();
 		});
 	});
 
@@ -440,15 +641,15 @@ describe("Reference3DTool", () => {
 
 		it("should not claim a gesture starting outside the element rect", () => {
 			expect(gesture("start", 50, 50, 1)).toBe(false);
-			expect(context.reference3dPreviewCamera).not.toHaveBeenCalled();
+			expect(context.scene3dPreviewCamera).not.toHaveBeenCalled();
 		});
 
 		it("should dolly in on pinch-out and commit once on end", () => {
 			expect(gesture("start", 400, 300, 1)).toBe(true);
 			expect(gesture("update", 400, 300, 2)).toBe(true);
 
-			const [, preview] = context.reference3dPreviewCamera.mock.calls.at(-1)!;
-			const camera = preview as Reference3DCamera;
+			const [, preview] = context.scene3dPreviewCamera.mock.calls.at(-1)!;
+			const camera = preview as Scene3DCamera;
 			// Pinching out to 2x halves the camera-to-target distance.
 			expect(distance(camera.position, camera.target)).toBeCloseTo(
 				distance(element.camera.position, element.camera.target) / 2,
@@ -458,7 +659,7 @@ describe("Reference3DTool", () => {
 			expect(gesture("end", 0, 0, 1)).toBe(true);
 			expect(context.updateElement).toHaveBeenCalledOnce();
 			// Preview cleared after the commit.
-			expect(context.reference3dPreviewCamera.mock.calls.at(-1)).toEqual([
+			expect(context.scene3dPreviewCamera.mock.calls.at(-1)).toEqual([
 				element.id,
 				null,
 			]);
@@ -468,8 +669,8 @@ describe("Reference3DTool", () => {
 			expect(gesture("start", 400, 300, 1)).toBe(true);
 			expect(gesture("update", 450, 300, 1)).toBe(true);
 
-			const [, preview] = context.reference3dPreviewCamera.mock.calls.at(-1)!;
-			const camera = preview as Reference3DCamera;
+			const [, preview] = context.scene3dPreviewCamera.mock.calls.at(-1)!;
+			const camera = preview as Scene3DCamera;
 			// Pan moves position and target together (same offset, same distance).
 			expect(camera.target).not.toEqual(element.camera.target);
 			const movedOffset = [
@@ -515,7 +716,7 @@ describe("Reference3DTool", () => {
 			expect(wheel(400, 300, -120)).toBe(true);
 
 			const camera = (
-				context.updateElement.mock.calls[0][1] as { camera: Reference3DCamera }
+				context.updateElement.mock.calls[0][1] as { camera: Scene3DCamera }
 			).camera;
 			expect(distance(camera.position, camera.target)).toBeLessThan(
 				distance(element.camera.position, element.camera.target),
@@ -533,7 +734,7 @@ describe("Reference3DTool", () => {
 			expect(wheel(400, 300, -5, true)).toBe(true);
 
 			const camera = (
-				context.updateElement.mock.calls[0][1] as { camera: Reference3DCamera }
+				context.updateElement.mock.calls[0][1] as { camera: Scene3DCamera }
 			).camera;
 			expect(distance(camera.position, camera.target)).toBeLessThan(
 				distance(element.camera.position, element.camera.target),
@@ -543,7 +744,7 @@ describe("Reference3DTool", () => {
 		it("should accumulate distance across repeated wheel ticks", () => {
 			expect(wheel(400, 300, 120)).toBe(true);
 			const first = (
-				context.updateElement.mock.calls[0][1] as { camera: Reference3DCamera }
+				context.updateElement.mock.calls[0][1] as { camera: Scene3DCamera }
 			).camera;
 
 			// Reflect the committed camera as the real document update would.
@@ -551,7 +752,7 @@ describe("Reference3DTool", () => {
 			expect(wheel(400, 300, 120)).toBe(true);
 
 			const second = (
-				context.updateElement.mock.calls[1][1] as { camera: Reference3DCamera }
+				context.updateElement.mock.calls[1][1] as { camera: Scene3DCamera }
 			).camera;
 			expect(distance(second.position, second.target)).toBeGreaterThan(
 				distance(first.position, first.target),
@@ -567,7 +768,7 @@ describe("Reference3DTool", () => {
 		it("should add a primitive via the public addPrimitive entry point and select it", () => {
 			tool.addPrimitive("cone");
 
-			const [sceneId, node] = context.reference3dAddNode.mock.calls[0];
+			const [sceneId, node] = context.scene3dAddNode.mock.calls[0];
 			expect(sceneId).toBe("scene-1");
 			expect(node).toMatchObject({ kind: "primitive", shape: "cone" });
 			expect(controller.getSelectedNodeId()).toBe(node.id);
@@ -582,21 +783,21 @@ describe("Reference3DTool", () => {
 			);
 
 			expect(handled).toBe(false);
-			expect(context.reference3dAddNode).not.toHaveBeenCalled();
+			expect(context.scene3dAddNode).not.toHaveBeenCalled();
 		});
 	});
 
 	describe("node selection and move gizmo", () => {
 		beforeEach(() => {
 			tool.enterEditModeForElement(element);
-			context.reference3dRaycastNode.mockReturnValue("node-box");
+			context.scene3dRaycastNode.mockReturnValue("node-box");
 		});
 
 		it("should raycast with element-local NDC and select the hit node", () => {
 			// screen(500,225) → world(100,75) → NDC (0.5, 0.5) in the 400×300 rect
 			down(500, 225);
 
-			const request = context.reference3dRaycastNode.mock.calls[0][0];
+			const request = context.scene3dRaycastNode.mock.calls[0][0];
 			expect(request.sceneId).toBe("scene-1");
 			expect(request.ndcX).toBeCloseTo(0.5, 6);
 			expect(request.ndcY).toBeCloseTo(0.5, 6);
@@ -615,11 +816,50 @@ describe("Reference3DTool", () => {
 			down(400, 300);
 			expect(controller.getSelectedNodeId()).toBe("node-box");
 
-			context.reference3dRaycastNode.mockReturnValue(null);
+			context.scene3dRaycastNode.mockReturnValue(null);
 			down(250, 180);
+			up(250, 180);
 
 			expect(controller.getSelectedNodeId()).toBeNull();
 			expect(lastGizmoOverlay(context)).toBeNull();
+		});
+
+		it("should keep the node selected through a camera drag on empty space", () => {
+			down(400, 300);
+			context.scene3dRaycastNode.mockReturnValue(null);
+
+			down(250, 180);
+			move(300, 200);
+			up(300, 200);
+
+			expect(controller.getSelectedNodeId()).toBe("node-box");
+		});
+
+		it("should orbit around the selected node instead of the camera target", () => {
+			down(400, 300);
+			context.scene3dRaycastNode.mockReturnValue(null);
+			const node = def.nodes.find((n) => n.id === "node-box")!;
+			const pivot = node.transform.position;
+
+			down(250, 180);
+			move(330, 200);
+
+			const [, camera] = context.scene3dPreviewCamera.mock.calls.at(-1)!;
+			const preview = camera as Scene3DCamera;
+			// The camera and its target swing together around the node.
+			expect(preview.target).not.toEqual(element.camera.target);
+			expect(distance(preview.position, pivot)).toBeCloseTo(
+				distance(element.camera.position, pivot),
+				6,
+			);
+			expect(distance(preview.target, pivot)).toBeCloseTo(
+				distance(element.camera.target, pivot),
+				6,
+			);
+			expect(distance(preview.position, preview.target)).toBeCloseTo(
+				distance(element.camera.position, element.camera.target),
+				6,
+			);
 		});
 
 		it("should move the node along the world X axis via the axis arrow and commit once", () => {
@@ -636,9 +876,9 @@ describe("Reference3DTool", () => {
 
 			// Preview carried the node moved along world X only.
 			const [previewSceneId, previewNodes] =
-				context.reference3dPreviewNodes.mock.calls.at(-2)!;
+				context.scene3dPreviewNodes.mock.calls.at(-2)!;
 			expect(previewSceneId).toBe("scene-1");
-			const previewBox = (previewNodes as Reference3DDef["nodes"]).find(
+			const previewBox = (previewNodes as Scene3DDef["nodes"]).find(
 				(n) => n.id === "node-box",
 			)!;
 			expect(previewBox.kind).toBe("primitive");
@@ -648,16 +888,16 @@ describe("Reference3DTool", () => {
 			expect(previewPos[1]).toBe(0.5);
 			expect(previewPos[2]).toBe(0);
 
-			expect(context.reference3dCommitNode).toHaveBeenCalledOnce();
+			expect(context.scene3dCommitNode).toHaveBeenCalledOnce();
 			expect(committed[0]).toBeGreaterThan(0);
 			expect(committed[1]).toBe(0.5);
 			expect(committed[2]).toBe(0);
 			// Node preview cleared after the commit.
-			expect(context.reference3dPreviewNodes.mock.calls.at(-1)).toEqual([
+			expect(context.scene3dPreviewNodes.mock.calls.at(-1)).toEqual([
 				"scene-1",
 				null,
 			]);
-			// The whole gesture wrote Yjs exactly once (via reference3dCommitNode).
+			// The whole gesture wrote Yjs exactly once (via scene3dCommitNode).
 			expect(context.updateElement).not.toHaveBeenCalled();
 		});
 	});
@@ -665,7 +905,7 @@ describe("Reference3DTool", () => {
 	describe("alt-drag duplicate", () => {
 		beforeEach(() => {
 			tool.enterEditModeForElement(element);
-			context.reference3dRaycastNode.mockReturnValue("node-box");
+			context.scene3dRaycastNode.mockReturnValue("node-box");
 			down(400, 300);
 			up(400, 300);
 		});
@@ -690,9 +930,9 @@ describe("Reference3DTool", () => {
 
 			// The original stays untouched; a single new node is added at the
 			// drop position and gets selected.
-			expect(context.reference3dCommitNode).not.toHaveBeenCalled();
-			expect(context.reference3dAddNode).toHaveBeenCalledOnce();
-			const [sceneId, added] = context.reference3dAddNode.mock.calls[0];
+			expect(context.scene3dCommitNode).not.toHaveBeenCalled();
+			expect(context.scene3dAddNode).toHaveBeenCalledOnce();
+			const [sceneId, added] = context.scene3dAddNode.mock.calls[0];
 			expect(sceneId).toBe("scene-1");
 			expect(added.id).not.toBe("node-box");
 			expect(added).toMatchObject({ kind: "primitive", shape: "box" });
@@ -704,7 +944,7 @@ describe("Reference3DTool", () => {
 	describe("rotation gizmo", () => {
 		beforeEach(() => {
 			tool.enterEditModeForElement(element);
-			context.reference3dRaycastNode.mockReturnValue("node-box");
+			context.scene3dRaycastNode.mockReturnValue("node-box");
 			down(400, 300);
 			up(400, 300);
 		});
@@ -729,9 +969,7 @@ describe("Reference3DTool", () => {
 				(p): p is Extract<UIPrimitive, { kind: "polyline" }> =>
 					p.hitId === "rotate-y",
 			)!;
-			expect(hovered.stroke?.color).toEqual(
-				UI_THEME.colors.reference3dHandleHover,
-			);
+			expect(hovered.stroke?.color).toEqual(UI_THEME.colors.scene3dHandleHover);
 
 			// Leaving the handle restores the base color.
 			move(10, 10);
@@ -740,7 +978,7 @@ describe("Reference3DTool", () => {
 					p.hitId === "rotate-y",
 			)!;
 			expect(rested.stroke?.color).not.toEqual(
-				UI_THEME.colors.reference3dHandleHover,
+				UI_THEME.colors.scene3dHandleHover,
 			);
 		});
 
@@ -762,8 +1000,8 @@ describe("Reference3DTool", () => {
 			move(end.x, end.y);
 			up(end.x, end.y);
 
-			expect(context.reference3dCommitNode).toHaveBeenCalledOnce();
-			const patch = context.reference3dCommitNode.mock.calls[0][2] as {
+			expect(context.scene3dCommitNode).toHaveBeenCalledOnce();
+			const patch = context.scene3dCommitNode.mock.calls[0][2] as {
 				transform: { scale: Vec3 };
 			};
 			expect(patch.transform.scale[0]).toBeCloseTo(2, 6);
@@ -790,8 +1028,8 @@ describe("Reference3DTool", () => {
 			move(end.x, end.y);
 			up(end.x, end.y);
 
-			expect(context.reference3dCommitNode).toHaveBeenCalledOnce();
-			const patch = context.reference3dCommitNode.mock.calls[0][2] as {
+			expect(context.scene3dCommitNode).toHaveBeenCalledOnce();
+			const patch = context.scene3dCommitNode.mock.calls[0][2] as {
 				transform: { scale: Vec3 };
 			};
 			expect(patch.transform.scale[0]).toBeCloseTo(2, 6);
@@ -843,8 +1081,8 @@ describe("Reference3DTool", () => {
 			move(end.x, end.y);
 			up(end.x, end.y);
 
-			expect(context.reference3dCommitNode).toHaveBeenCalledOnce();
-			const patch = context.reference3dCommitNode.mock.calls[0][2] as {
+			expect(context.scene3dCommitNode).toHaveBeenCalledOnce();
+			const patch = context.scene3dCommitNode.mock.calls[0][2] as {
 				transform: { rotation: Quat };
 			};
 			const { axis, angle } = quatToAxisAngle(patch.transform.rotation);
@@ -855,7 +1093,7 @@ describe("Reference3DTool", () => {
 			// Position untouched; the whole gesture wrote once via commit.
 			expect(context.updateElement).not.toHaveBeenCalled();
 			// Node preview cleared after the commit.
-			expect(context.reference3dPreviewNodes.mock.calls.at(-1)).toEqual([
+			expect(context.scene3dPreviewNodes.mock.calls.at(-1)).toEqual([
 				"scene-1",
 				null,
 			]);
@@ -868,7 +1106,7 @@ describe("Reference3DTool", () => {
 		it("should place the gizmo on the rotated pixels (rotated image of the local origin)", () => {
 			// Baseline: identity transform — gizmo origin in local coordinates.
 			const base = createHarness();
-			base.context.reference3dRaycastNode.mockReturnValue("node-box");
+			base.context.scene3dRaycastNode.mockReturnValue("node-box");
 			base.tool.enterEditModeForElement(base.element);
 			pointerDown(base.tool, 400, 300);
 			pointerUp(base.tool, 400, 300);
@@ -877,7 +1115,7 @@ describe("Reference3DTool", () => {
 			// Rotated element: the same handle must land on the rotated image
 			// of that local point (transform pivots at the rect center (0,0)).
 			const rotated = createHarness({ rotation: ROTATION });
-			rotated.context.reference3dRaycastNode.mockReturnValue("node-box");
+			rotated.context.scene3dRaycastNode.mockReturnValue("node-box");
 			rotated.tool.enterEditModeForElement(rotated.element);
 			pointerDown(rotated.tool, 400, 300);
 			pointerUp(rotated.tool, 400, 300);
@@ -893,7 +1131,7 @@ describe("Reference3DTool", () => {
 
 		it("should raycast the same NDC when the pointer follows the rotated pixels", () => {
 			const rotated = createHarness({ rotation: ROTATION });
-			rotated.context.reference3dRaycastNode.mockReturnValue("node-box");
+			rotated.context.scene3dRaycastNode.mockReturnValue("node-box");
 			rotated.tool.enterEditModeForElement(rotated.element);
 
 			// Local (100,75) = NDC (0.5, 0.5); its pixels moved to the rotated spot.
@@ -901,7 +1139,7 @@ describe("Reference3DTool", () => {
 			const screen = worldToScreenPoint(canvasPoint);
 			pointerDown(rotated.tool, screen.x, screen.y);
 
-			const request = rotated.context.reference3dRaycastNode.mock.calls[0][0];
+			const request = rotated.context.scene3dRaycastNode.mock.calls[0][0];
 			expect(request.ndcX).toBeCloseTo(0.5, 6);
 			expect(request.ndcY).toBeCloseTo(0.5, 6);
 			expect(rotated.controller.getSelectedNodeId()).toBe("node-box");
@@ -910,7 +1148,7 @@ describe("Reference3DTool", () => {
 		it("should commit the same axis-drag amount regardless of element rotation", () => {
 			const committedAt = (rotation: number): Vec3 => {
 				const harness = createHarness({ rotation });
-				harness.context.reference3dRaycastNode.mockReturnValue("node-box");
+				harness.context.scene3dRaycastNode.mockReturnValue("node-box");
 				harness.tool.enterEditModeForElement(harness.element);
 				pointerDown(harness.tool, 400, 300);
 				pointerUp(harness.tool, 400, 300);
@@ -930,22 +1168,20 @@ describe("Reference3DTool", () => {
 	describe("Escape ladder", () => {
 		it("should deselect the node first, then exit to the select tool", () => {
 			tool.enterEditModeForElement(element);
-			context.reference3dRaycastNode.mockReturnValue("node-box");
+			context.scene3dRaycastNode.mockReturnValue("node-box");
 			down(400, 300);
 			up(400, 300);
 
 			expect(pressEscape()).toBe(true);
 			expect(controller.getSelectedNodeId()).toBeNull();
 			expect(controller.isEditing()).toBe(true);
-			expect(context.reference3dExitEdit).not.toHaveBeenCalled();
+			expect(context.scene3dExitEdit).not.toHaveBeenCalled();
 
 			expect(pressEscape()).toBe(true);
 			expect(controller.isEditing()).toBe(false);
-			expect(context.reference3dExitEdit).toHaveBeenCalledOnce();
+			expect(context.scene3dExitEdit).toHaveBeenCalledOnce();
 			// Leaving the edit session also releases the perspective guide source.
-			expect(context.reference3dSetGuideSource.mock.calls.at(-1)).toEqual([
-				null,
-			]);
+			expect(context.scene3dSetGuideSource.mock.calls.at(-1)).toEqual([null]);
 		});
 	});
 
@@ -953,9 +1189,9 @@ describe("Reference3DTool", () => {
 		function createPoseHarness(): Harness {
 			const harness = createHarness();
 			harness.def.nodes.push(makeFigureNode());
-			harness.context.reference3dGetDef.mockReturnValue(harness.def);
-			harness.context.reference3dGetFigureRig.mockReturnValue(makeTestRig());
-			harness.context.reference3dRaycastNode.mockReturnValue("node-fig");
+			harness.context.scene3dGetDef.mockReturnValue(harness.def);
+			harness.context.scene3dGetFigureRig.mockReturnValue(makeTestRig());
+			harness.context.scene3dRaycastNode.mockReturnValue("node-fig");
 			harness.tool.enterEditModeForElement(harness.element);
 			return harness;
 		}
@@ -973,7 +1209,7 @@ describe("Reference3DTool", () => {
 			harnessContext: MockToolContext,
 		): UIOverlay | null {
 			const calls = harnessContext.uiSetOverlay.mock.calls.filter(
-				([key]) => key === "reference3d/pose",
+				([key]) => key === "scene3d/pose",
 			);
 			return (calls.at(-1)?.[1] as UIOverlay | null) ?? null;
 		}
@@ -1006,7 +1242,7 @@ describe("Reference3DTool", () => {
 			hipsPosition?: [number, number, number];
 		} {
 			const [, nodeId, patch] =
-				harnessContext.reference3dCommitNode.mock.calls.at(-1)!;
+				harnessContext.scene3dCommitNode.mock.calls.at(-1)!;
 			expect(nodeId).toBe("node-fig");
 			return (patch as { pose: never }).pose;
 		}
@@ -1036,8 +1272,8 @@ describe("Reference3DTool", () => {
 
 			dragBoneHandle(harness, "hips", 30, 20);
 
-			expect(harness.context.reference3dPreviewNodes).toHaveBeenCalled();
-			expect(harness.context.reference3dCommitNode).toHaveBeenCalledOnce();
+			expect(harness.context.scene3dPreviewNodes).toHaveBeenCalled();
+			expect(harness.context.scene3dCommitNode).toHaveBeenCalledOnce();
 			const pose = committedPose(harness.context);
 			expect(pose.hipsPosition).toBeDefined();
 			const magnitude = Math.hypot(...(pose.hipsPosition as number[]));
@@ -1045,9 +1281,10 @@ describe("Reference3DTool", () => {
 			// Pure translation: no bone rotations introduced.
 			expect(Object.keys(pose.bones)).toEqual([]);
 			// Preview cleared after the commit.
-			expect(harness.context.reference3dPreviewNodes.mock.calls.at(-1)).toEqual(
-				["scene-1", null],
-			);
+			expect(harness.context.scene3dPreviewNodes.mock.calls.at(-1)).toEqual([
+				"scene-1",
+				null,
+			]);
 		});
 
 		it("should solve arm IK when dragging the hand handle", () => {
@@ -1116,7 +1353,7 @@ describe("Reference3DTool", () => {
 
 			expect(esc()).toBe(true);
 			expect(harness.controller.isEditing()).toBe(false);
-			expect(harness.context.reference3dExitEdit).toHaveBeenCalledOnce();
+			expect(harness.context.scene3dExitEdit).toHaveBeenCalledOnce();
 		});
 	});
 });
@@ -1126,13 +1363,13 @@ describe("Reference3DTool", () => {
 // ---------------------------------------------------------------------------
 
 function createHarness(options: { rotation?: number } = {}): Harness {
-	const controller = new Reference3DController();
+	const controller = new Scene3DController();
 	const element = makeElement(options.rotation ?? 0);
 	const def = makeDef();
 	const context = createMockToolContext({
-		reference3dController: controller,
+		scene3dController: controller,
 		getElement: vi.fn(() => element),
-		reference3dGetDef: vi.fn(() => def),
+		scene3dGetDef: vi.fn(() => def),
 		getViewport: vi.fn(() => ({
 			viewport: testViewport,
 			canvasWidth: testCanvasWidth,
@@ -1140,7 +1377,7 @@ function createHarness(options: { rotation?: number } = {}): Harness {
 		})),
 	});
 	return {
-		tool: new Reference3DTool(context),
+		tool: new Scene3DTool(context),
 		context,
 		controller,
 		element,
@@ -1148,10 +1385,10 @@ function createHarness(options: { rotation?: number } = {}): Harness {
 	};
 }
 
-function makeElement(rotation = 0): Reference3DElement {
+function makeElement(rotation = 0): Scene3DElement {
 	return {
-		id: "reference3d-el",
-		type: "reference3d",
+		id: "scene3d-el",
+		type: "scene3d",
 		opacity: 1,
 		blendMode: "normal",
 		transform: { x: 0, y: 0, rotation, scaleX: 1, scaleY: 1 },
@@ -1170,7 +1407,7 @@ function makeElement(rotation = 0): Reference3DElement {
 	};
 }
 
-function makeDef(): Reference3DDef {
+function makeDef(): Scene3DDef {
 	return {
 		id: "scene-1",
 		nodes: [
@@ -1188,7 +1425,7 @@ function makeDef(): Reference3DDef {
 	};
 }
 
-function makeFigureNode(): Reference3DNode {
+function makeFigureNode(): Scene3DNode {
 	return {
 		id: "node-fig",
 		kind: "figure",
@@ -1258,7 +1495,7 @@ function makeTestRig(): IKRigData {
 }
 
 function pointerDown(
-	tool: Reference3DTool,
+	tool: Scene3DTool,
 	x: number,
 	y: number,
 	overrides = {},
@@ -1271,11 +1508,21 @@ function pointerDown(
 	);
 }
 
-function pointerMove(tool: Reference3DTool, x: number, y: number): void {
-	tool.onPointerMove(ev(x, y), testViewport, testCanvasWidth, testCanvasHeight);
+function pointerMove(
+	tool: Scene3DTool,
+	x: number,
+	y: number,
+	overrides = {},
+): void {
+	tool.onPointerMove(
+		ev(x, y, overrides),
+		testViewport,
+		testCanvasWidth,
+		testCanvasHeight,
+	);
 }
 
-function pointerUp(tool: Reference3DTool, x: number, y: number): void {
+function pointerUp(tool: Scene3DTool, x: number, y: number): void {
 	tool.onPointerUp(ev(x, y), testViewport, testCanvasWidth, testCanvasHeight);
 }
 
@@ -1318,7 +1565,7 @@ function planeHandleOf(overlay: UIOverlay): { cx: number; cy: number } {
 /**
  * With the node already selected, grab the X-axis arrow at its shaft midpoint
  * and drag by one arrow-vector along its direction. Returns the committed
- * node position from reference3dCommitNode.
+ * node position from scene3dCommitNode.
  */
 function dragAlongAxisXArrow(harness: Harness): Vec3 {
 	const arrow = lastGizmoOverlay(harness.context)!.primitives.find(
@@ -1340,7 +1587,7 @@ function dragAlongAxisXArrow(harness: Harness): Vec3 {
 	pointerMove(harness.tool, dragScreen.x, dragScreen.y);
 	pointerUp(harness.tool, dragScreen.x, dragScreen.y);
 
-	const [, , patch] = harness.context.reference3dCommitNode.mock.calls[0];
+	const [, , patch] = harness.context.scene3dCommitNode.mock.calls[0];
 	return (patch as { transform: { position: Vec3 } }).transform.position;
 }
 

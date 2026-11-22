@@ -1,4 +1,4 @@
-import type { PerspectiveGuideData } from "../../../reference3d/perspective/vanishingPoints";
+import type { PerspectiveGuideData } from "../../../scene3d/perspective/vanishingPoints";
 import type { UIPrimitive } from "../primitives";
 import type { UITheme } from "../theme";
 

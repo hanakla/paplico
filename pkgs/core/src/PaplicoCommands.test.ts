@@ -2903,12 +2903,12 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
-	describe("reference3d commands", () => {
-		function createReference3DCommands(options: { readonly?: boolean } = {}) {
+	describe("scene3d commands", () => {
+		function createScene3DCommands(options: { readonly?: boolean } = {}) {
 			const layer = createLayer("layer-1", []);
-			const setReference3D = vi.fn();
+			const setScene3D = vi.fn();
 			const addElement = vi.fn();
-			const updateReference3DNodes = vi.fn();
+			const updateScene3DNodes = vi.fn();
 
 			const store = {
 				currentLayerId: layer.id,
@@ -2917,7 +2917,7 @@ describe("PaplicoCommands", () => {
 				document: {
 					layers: [layer],
 					objects: {},
-					references3d: {
+					scenes3d: {
 						"scene-1": {
 							id: "scene-1",
 							nodes: [
@@ -2951,10 +2951,10 @@ describe("PaplicoCommands", () => {
 			const commands = new PaplicoCommands({
 				store,
 				yjsProvider: {
-					setReference3D,
+					setScene3D,
 					addElement,
 					addFile,
-					updateReference3DNodes,
+					updateScene3DNodes,
 					transact: vi.fn((fn: () => void) => fn()),
 				} as unknown as YjsProvider,
 				spatial: {
@@ -2966,22 +2966,21 @@ describe("PaplicoCommands", () => {
 
 			return {
 				commands,
-				setReference3D,
+				setScene3D,
 				addElement,
 				addFile,
-				updateReference3DNodes,
+				updateScene3DNodes,
 			};
 		}
 
 		it("should create a shared scene (box) and a viewing element in one transaction", () => {
-			const { commands, setReference3D, addElement } =
-				createReference3DCommands();
+			const { commands, setScene3D, addElement } = createScene3DCommands();
 
-			const element = commands.createReference3DScene(120, -40);
+			const element = commands.createScene3D(120, -40);
 
 			expect(element).not.toBeNull();
-			expect(setReference3D).toHaveBeenCalledOnce();
-			const def = setReference3D.mock.calls[0][0];
+			expect(setScene3D).toHaveBeenCalledOnce();
+			const def = setScene3D.mock.calls[0][0];
 			expect(def.nodes.map((n: { kind: string }) => n.kind)).toEqual([
 				"primitive",
 			]);
@@ -2989,16 +2988,16 @@ describe("PaplicoCommands", () => {
 			expect(addElement).toHaveBeenCalledOnce();
 			const [layerId, added] = addElement.mock.calls[0];
 			expect(layerId).toBe("layer-1");
-			expect(added.type).toBe("reference3d");
+			expect(added.type).toBe("scene3d");
 			expect(added.sceneId).toBe(def.id);
 			expect(added.x).toBe(120);
 			expect(added.y).toBe(-40);
 		});
 
-		it("should append a node via reference3dAddNode keeping existing nodes", () => {
-			const { commands, updateReference3DNodes } = createReference3DCommands();
+		it("should append a node via scene3dAddNode keeping existing nodes", () => {
+			const { commands, updateScene3DNodes } = createScene3DCommands();
 
-			commands.reference3dAddNode("scene-1", {
+			commands.scene3dAddNode("scene-1", {
 				id: "node-new",
 				kind: "primitive",
 				shape: "sphere",
@@ -3009,7 +3008,7 @@ describe("PaplicoCommands", () => {
 				},
 			});
 
-			const [sceneId, nodes] = updateReference3DNodes.mock.calls[0];
+			const [sceneId, nodes] = updateScene3DNodes.mock.calls[0];
 			expect(sceneId).toBe("scene-1");
 			expect(nodes.map((n: { id: string }) => n.id)).toEqual([
 				"node-mesh",
@@ -3018,10 +3017,10 @@ describe("PaplicoCommands", () => {
 			]);
 		});
 
-		it("should patch only the targeted node via reference3dCommitNode", () => {
-			const { commands, updateReference3DNodes } = createReference3DCommands();
+		it("should patch only the targeted node via scene3dCommitNode", () => {
+			const { commands, updateScene3DNodes } = createScene3DCommands();
 
-			commands.reference3dCommitNode("scene-1", "node-box", {
+			commands.scene3dCommitNode("scene-1", "node-box", {
 				transform: {
 					position: [2, 0.5, -1],
 					rotation: [0, 0, 0, 1],
@@ -3029,19 +3028,19 @@ describe("PaplicoCommands", () => {
 				},
 			});
 
-			const [, nodes] = updateReference3DNodes.mock.calls[0];
+			const [, nodes] = updateScene3DNodes.mock.calls[0];
 			const box = nodes.find((n: { id: string }) => n.id === "node-box");
 			expect(box.transform.position).toEqual([2, 0.5, -1]);
 			const mesh = nodes.find((n: { id: string }) => n.id === "node-mesh");
 			expect(mesh.transform.position).toEqual([0, 0, 0]);
 		});
 
-		it("should reject all reference3d mutations while readonly", () => {
-			const { commands, setReference3D, updateReference3DNodes } =
-				createReference3DCommands({ readonly: true });
+		it("should reject all scene3d mutations while readonly", () => {
+			const { commands, setScene3D, updateScene3DNodes } =
+				createScene3DCommands({ readonly: true });
 
-			expect(commands.createReference3DScene(0, 0)).toBeNull();
-			commands.reference3dAddNode("scene-1", {
+			expect(commands.createScene3D(0, 0)).toBeNull();
+			commands.scene3dAddNode("scene-1", {
 				id: "n",
 				kind: "primitive",
 				shape: "box",
@@ -3051,37 +3050,34 @@ describe("PaplicoCommands", () => {
 					scale: [1, 1, 1],
 				},
 			});
-			commands.reference3dCommitNode("scene-1", "node-box", {});
+			commands.scene3dCommitNode("scene-1", "node-box", {});
 
-			expect(setReference3D).not.toHaveBeenCalled();
-			expect(updateReference3DNodes).not.toHaveBeenCalled();
+			expect(setScene3D).not.toHaveBeenCalled();
+			expect(updateScene3DNodes).not.toHaveBeenCalled();
 		});
 
-		it("should remove a node via reference3dRemoveNode keeping the others", () => {
-			const { commands, updateReference3DNodes } = createReference3DCommands();
+		it("should remove a node via scene3dRemoveNode keeping the others", () => {
+			const { commands, updateScene3DNodes } = createScene3DCommands();
 
-			commands.reference3dRemoveNode("scene-1", "node-box");
+			commands.scene3dRemoveNode("scene-1", "node-box");
 
-			const [sceneId, nodes] = updateReference3DNodes.mock.calls[0];
+			const [sceneId, nodes] = updateScene3DNodes.mock.calls[0];
 			expect(sceneId).toBe("scene-1");
 			expect(nodes.map((n: { id: string }) => n.id)).toEqual(["node-mesh"]);
 		});
 
 		it("should not write when removing an unknown node", () => {
-			const { commands, updateReference3DNodes } = createReference3DCommands();
+			const { commands, updateScene3DNodes } = createScene3DCommands();
 
-			commands.reference3dRemoveNode("scene-1", "missing");
+			commands.scene3dRemoveNode("scene-1", "missing");
 
-			expect(updateReference3DNodes).not.toHaveBeenCalled();
+			expect(updateScene3DNodes).not.toHaveBeenCalled();
 		});
 
 		it("should duplicate a node with a new id and a position offset", () => {
-			const { commands, updateReference3DNodes } = createReference3DCommands();
+			const { commands, updateScene3DNodes } = createScene3DCommands();
 
-			const duplicate = commands.reference3dDuplicateNode(
-				"scene-1",
-				"node-box",
-			);
+			const duplicate = commands.scene3dDuplicateNode("scene-1", "node-box");
 
 			expect(duplicate).not.toBeNull();
 			expect(duplicate!.id).not.toBe("node-box");
@@ -3089,16 +3085,15 @@ describe("PaplicoCommands", () => {
 			if (duplicate!.kind === "primitive") {
 				expect(duplicate!.transform.position).toEqual([0.3, 0.5, 0.3]);
 			}
-			const [, nodes] = updateReference3DNodes.mock.calls[0];
+			const [, nodes] = updateScene3DNodes.mock.calls[0];
 			expect(nodes.at(-1)).toBe(duplicate);
 			expect(nodes).toHaveLength(3);
 		});
 
 		it("should store a GLB file and append a static mesh node", () => {
-			const { commands, addFile, updateReference3DNodes } =
-				createReference3DCommands();
+			const { commands, addFile, updateScene3DNodes } = createScene3DCommands();
 
-			const node = commands.reference3dAddMesh("scene-1", {
+			const node = commands.scene3dAddMesh("scene-1", {
 				uid: "file-original-uid",
 				name: "prop.glb",
 				type: "model/gltf-binary",
@@ -3112,15 +3107,14 @@ describe("PaplicoCommands", () => {
 				kind: "mesh",
 				fileUid: "file-dedup-uid",
 			});
-			const [, nodes] = updateReference3DNodes.mock.calls[0];
+			const [, nodes] = updateScene3DNodes.mock.calls[0];
 			expect(nodes.at(-1)).toBe(node);
 		});
 
 		it("should store the VRM file (hash-deduplicated) and append a rest-pose figure node", () => {
-			const { commands, addFile, updateReference3DNodes } =
-				createReference3DCommands();
+			const { commands, addFile, updateScene3DNodes } = createScene3DCommands();
 
-			const node = commands.reference3dAddFigure("scene-1", {
+			const node = commands.scene3dAddFigure("scene-1", {
 				uid: "file-original-uid",
 				name: "model.vrm",
 				type: "model/gltf-binary",
@@ -3136,7 +3130,7 @@ describe("PaplicoCommands", () => {
 				fileUid: "file-dedup-uid",
 				pose: { bones: {} },
 			});
-			const [, nodes] = updateReference3DNodes.mock.calls[0];
+			const [, nodes] = updateScene3DNodes.mock.calls[0];
 			expect(nodes.at(-1)).toBe(node);
 		});
 	});

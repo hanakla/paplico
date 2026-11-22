@@ -230,7 +230,7 @@ type MetaPayload = {
     colorProfile?: ColorProfileSettings;
     rasterizationDpi?: number;
     defs?: Record<string, DefEntry>;
-    references3d?: Record<string, Reference3DDef>;
+    scenes3d?: Record<string, Scene3DDef>;
   };
 
   // 埋め込みファイルのメタ情報 (バイナリは FILE セクションに分離)
@@ -256,7 +256,9 @@ type MetaPayload = {
 
 `document.files` のバイナリは FILE セクションへ、`document.timelapse` は TMLH/TMLB セクションへ分離されるため、META には含まれない。
 
-`hdr`、`colorProfile`、`rasterizationDpi`、`defs`、`references3d`、`appearancePresets` は後方互換性のため任意フィールドである。`toDocument()` は `defs` と `references3d` が存在しない場合に空オブジェクトを、`appearancePresets` が存在しない場合に空配列を補う。
+スキーマバージョン 20261122 より前のファイルは、`scenes3d` を `references3d` という名前で持つ。3D シーン要素の `type` は `"reference3d"` である。`toDocument()` はどちらも現在の名前に読み替える。
+
+`hdr`、`colorProfile`、`rasterizationDpi`、`defs`、`scenes3d`、`appearancePresets` は後方互換性のため任意フィールドである。`toDocument()` は `defs` と `scenes3d` が存在しない場合に空オブジェクトを、`appearancePresets` が存在しない場合に空配列を補う。
 
 `appData` は、`exportDocument` の `appData` を渡したときだけ書く。キーはアプリの名前にする。Paplico のアプリは `appData.paplico` に `schema` と `saveOptions` を書く。`schema` は `appData.paplico` の中身のスキーマバージョンである。
 

@@ -24,7 +24,7 @@ import { documentPath, documentSessionState } from "./documentSessionStore";
 type LinkedFileStatus = "missing" | "changed";
 
 /** The part of a document that says which files its elements show. */
-type AssetSource = Snapshot<Pick<Document, "objects" | "references3d">>;
+type AssetSource = Snapshot<Pick<Document, "objects" | "scenes3d">>;
 
 /** Linked files that differ from their source, by EmbeddedFile.uid. */
 export const linkedFilesState = proxy<{
@@ -200,10 +200,10 @@ function assetFileUidsOf(
 	document: AssetSource,
 ): string[] {
 	if (element.type === "image") return [element.fileUid];
-	if (element.type !== "reference3d") return [];
+	if (element.type !== "scene3d") return [];
 
-	return (document.references3d?.[element.sceneId]?.nodes ?? []).flatMap(
-		(node) => (node.kind === "primitive" ? [] : [node.fileUid]),
+	return (document.scenes3d?.[element.sceneId]?.nodes ?? []).flatMap((node) =>
+		node.kind === "primitive" ? [] : [node.fileUid],
 	);
 }
 

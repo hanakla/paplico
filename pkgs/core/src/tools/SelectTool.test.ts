@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	createIdentityTransform,
 	createRepeatObject,
+	createScene3DElement,
 } from "../document/factory";
 import { SpatialIndex } from "../document/SpatialIndex";
 import type { RendererState } from "../renderer/types";
@@ -1385,6 +1386,26 @@ describe("SelectTool onDoubleClick (editing scope)", () => {
 		doubleClick(tool);
 
 		expect(context.enterEditingScope.mock.calls[0][0]).toBe("path-1");
+	});
+
+	it("should open the scene editor instead of a scope when double-clicking a 3D scene", () => {
+		const element = createScene3DElement({
+			sceneId: "scene-1",
+			x: 0,
+			y: 0,
+			width: 100,
+			height: 100,
+		});
+		const context = createMockToolContext({
+			getCurrentLayer: () => layer,
+			findElementAtPoint: () => element,
+		});
+		const tool = new SelectTool(context);
+
+		doubleClick(tool);
+
+		expect(context.scene3dOpenEditor.mock.calls[0][0]).toBe(element);
+		expect(context.enterEditingScope).not.toHaveBeenCalled();
 	});
 
 	it("should open the text editor instead of a scope when double-clicking a text element", () => {

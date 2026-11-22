@@ -664,7 +664,7 @@ function collectSubtreeIds(
 				break;
 			case "path":
 			case "image":
-			case "reference3d":
+			case "scene3d":
 				// Reference no other elements beyond the mask handled above.
 				break;
 			default:

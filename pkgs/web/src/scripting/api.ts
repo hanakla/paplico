@@ -12,7 +12,7 @@ import type {
 	Layer,
 	MeshArtObject,
 	Path,
-	Reference3DElement,
+	Scene3DElement,
 	TextElement,
 } from "@paplico/core/schema";
 import type { ScriptHost } from "@paplico/syrup";
@@ -165,7 +165,7 @@ declare type MeshFace {
 	let verts: [Number]
 }
 
-declare type Reference3DCamera {
+declare type Scene3DCamera {
 	let projection: String
 	let position: [Number]
 	let target: [Number]
@@ -221,7 +221,7 @@ declare type ArtObject {
 	let vertices: [MeshVertex]?
 	let faces: [MeshFace]?
 	let sceneId: String?
-	let camera: Reference3DCamera?
+	let camera: Scene3DCamera?
 	let displayMode: String?
 	let lineart: Lineart3DParams?
 	let lightDir: [Number]?
@@ -349,8 +349,8 @@ export interface ScriptArtObject
 	readonly spineSourceId?: BlendObject["spineSourceId"];
 	readonly tiltToSpine?: BlendObject["tiltToSpine"];
 	readonly fileUid?: ImageObject["fileUid"];
-	readonly x?: ImageObject["x"] | TextElement["x"] | Reference3DElement["x"];
-	readonly y?: ImageObject["y"] | TextElement["y"] | Reference3DElement["y"];
+	readonly x?: ImageObject["x"] | TextElement["x"] | Scene3DElement["x"];
+	readonly y?: ImageObject["y"] | TextElement["y"] | Scene3DElement["y"];
 	readonly width?: ImageObject["width"];
 	readonly height?: ImageObject["height"];
 	readonly content?: TextElement["content"];
@@ -360,12 +360,12 @@ export interface ScriptArtObject
 	readonly flow?: TextElement["flow"];
 	readonly vertices?: MeshArtObject["vertices"];
 	readonly faces?: MeshArtObject["faces"];
-	readonly sceneId?: Reference3DElement["sceneId"];
-	readonly camera?: Reference3DElement["camera"];
-	readonly displayMode?: Reference3DElement["displayMode"];
-	readonly lineart?: Reference3DElement["lineart"];
-	readonly lightDir?: Reference3DElement["lightDir"];
-	readonly includeInExport?: Reference3DElement["includeInExport"];
+	readonly sceneId?: Scene3DElement["sceneId"];
+	readonly camera?: Scene3DElement["camera"];
+	readonly displayMode?: Scene3DElement["displayMode"];
+	readonly lineart?: Scene3DElement["lineart"];
+	readonly lightDir?: Scene3DElement["lightDir"];
+	readonly includeInExport?: Scene3DElement["includeInExport"];
 }
 
 type ScriptTransform = ElementTransform;

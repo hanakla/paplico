@@ -15,7 +15,7 @@ Paplico.ts (facade — public API boundary)
   ├── SpatialIndex          (hit testing via Quadtree — document/SpatialIndex.ts)
   ├── collaboration/        (Collaboration | PartyKitCollaboration | E2EECollaboration; the app picks one)
   │   └── YjsProvider       (owns the Y.Doc + UndoManager; single source of truth)
-  ├── reference3d/          (three.js runtime, lazy-loaded chunk — VRM figures,
+  ├── scene3d/          (three.js runtime, lazy-loaded chunk — VRM figures,
   │                          primitives, lineart, vanishing points)
   └── RenderOrchestrator (renderer/)
       ├── CanvasTarget           (DOM canvas wrapper, resize, viewport state)
@@ -43,7 +43,7 @@ Paplico.ts (facade — public API boundary)
           ├── pipeline/strips/StripFrame — resident strip pages (StripPagePool) + GPU coverage (StripCoverage)
           ├── ElementRenderer (elements/ — element-type dispatch)
           │   ├── GradientRenderer / ImageElementRenderer / TextElementRenderer / MeshElementRenderer
-          │   └── Reference3DElementRenderer (blits the three.js scene texture)
+          │   └── Scene3DElementRenderer (blits the three.js scene texture)
           └── pipeline/brush/ — stroke engines; brush shaders live in pipeline/brush/shaders/
               ├── BrushRenderer — owns DabRenderer, RibbonRenderer, WetStrokeRenderer and BrushFrameBuffers; dispatches by engine
               ├── DabEvaluator (curve matrix -> dab instances) + TipMaskBuilder
@@ -69,7 +69,7 @@ renderer/filters/ (one folder per filter: <Name>Filter/<Name>Filter.ts
 > Names drift as the code moves. This diagram was verified against
 > `renderer/` on 2026-07-12; re-`ls` the directory rather than trusting it
 > blindly. Notable renames from older docs: `OffscreenRenderer` →
-> `OffscreenPresenter`; `Scene3DElementRenderer` → `Reference3DElementRenderer`;
+> `OffscreenPresenter`;
 > `ExtrudeAppearanceRenderer` moved from `canvas/elements/` to
 > `filters/shared/`; the flat `renderer/` tree is now
 > `renderer/canvas/{pipeline,elements,caches}` + `renderer/ui`.
@@ -441,11 +441,11 @@ Paplico has two independent 3D features — **do not conflate them**:
   `BackdropEffectDriver`; flat fill/stroke is suppressed by the
   processor-agnostic `isElementRenderReplaced`.
   Detail → `references/extrude-3d-appearance.md`.
-- **Reference3D (atari / reference scenes)** — a *distinct element type* (`reference3d`) +
-  document-level shared scenes (`Document.references3d`), built on three.js
+- **Scene3D (atari / reference scenes)** — a *distinct element type* (`scene3d`) +
+  document-level shared scenes (`Document.scenes3d`), built on three.js
   (lazy-loaded, blitted like an image): primitives, poseable VRM figures + IK,
   lineart extraction, camera-derived perspective guides. A tracing aid, not a 3D
-  editor. Detail → `references/reference3d.md`.
+  editor. Detail → `references/scene3d.md`.
 
 ## Renderer gotchas (hard-won)
 
@@ -656,7 +656,7 @@ Paplico has two independent 3D features — **do not conflate them**:
 ## Reference Documents
 
 - `references/extrude-3d-appearance.md` — extrude3d appearance filter (opaque postProcess vs glass BackdropEffectDriver), ExtrudeMeshBaker, MeshPassRenderer, mesh/cache
-- `references/reference3d.md` — Reference3D atari feature: three.js boundary, scene data model, VRM/IK, lineart, perspective guides, Reference3DTool
+- `references/scene3d.md` — Scene3D atari feature: three.js boundary, scene data model, VRM/IK, lineart, perspective guides, Scene3DTool
 - `references/brush-engine.md` — Brush settings model and curve matrix, routing and the four draw seams, dab/path GPU layouts, wash, colour mixing, the wet layer, ribbons, caches, testing constraints
 - `references/rasterization-dpi.md` — Fixed rasterization resolution (R), where it applies, persistence, gotchas
 - `references/rendering-pipeline.md` — FrameGraph (declarative pass graph), render pass structure, cache, compositing, GPU resource ownership

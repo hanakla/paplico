@@ -9,7 +9,7 @@ import type {
 	CompoundPath,
 	Group,
 	Path,
-	Reference3DElement,
+	Scene3DElement,
 	StrokeAppearance,
 } from "../../schema";
 import { closedRectSegments } from "../../testUtils/segmentFactory";
@@ -71,10 +71,10 @@ describe("calculateElementBounds", () => {
 		expect(bounds.maxY).toBe(105);
 	});
 
-	it("should compute center-rect bounds for reference3d elements (same model as image)", () => {
-		const reference3d: Reference3DElement = {
-			type: "reference3d",
-			id: "reference3d-1",
+	it("should compute center-rect bounds for scene3d elements (same model as image)", () => {
+		const scene3d: Scene3DElement = {
+			type: "scene3d",
+			id: "scene3d-1",
 			opacity: 1,
 			blendMode: "normal",
 			transform: createIdentityTransform(),
@@ -92,7 +92,7 @@ describe("calculateElementBounds", () => {
 			displayMode: "lineart",
 		};
 
-		const bounds = calculateElementBounds(reference3d);
+		const bounds = calculateElementBounds(scene3d);
 
 		expect(bounds.minX).toBe(-100);
 		expect(bounds.minY).toBe(-100);

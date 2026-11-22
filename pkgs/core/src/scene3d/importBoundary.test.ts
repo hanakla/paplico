@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 /**
  * Guard: three.js must never enter the core static module graph.
  *
- * The Reference3D subsystem loads three.js through the single dynamic import in
- * reference3d/index.ts. If any module reachable from the Paplico facade (or the
+ * The Scene3D subsystem loads three.js through the single dynamic import in
+ * scene3d/index.ts. If any module reachable from the Paplico facade (or the
  * public barrel) gains a static `import ... from "three"`, the ~170KB+ lazy
  * chunk would silently fold into the main bundle. This test walks the static
  * import graph from both entry points and fails on any "three" edge.
@@ -42,7 +42,7 @@ describe("core three.js import boundary", () => {
 
 	it("should detect a static three import when one exists (detector self-check)", () => {
 		const { bareImports } = walkStaticImportGraph([
-			path.join(CORE_ROOT, "reference3d/Reference3DService.ts"),
+			path.join(CORE_ROOT, "scene3d/Scene3DService.ts"),
 		]);
 
 		expect(bareImports.has("three")).toBe(true);

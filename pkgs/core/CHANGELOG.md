@@ -4,13 +4,22 @@
 
 ### Added
 
+- **Tools**
+  - Double-clicking a 3D scene with the select tool opens a scene editor that draws the element's view on past its frame, over the whole canvas, so the scene first appears where the frame shows it. The editor's camera starts as the element's camera and never changes it, while node edits are written to the scene as before.
+  - 3D scene tool: `Scene3DTool.frameSelectedNode()` and `frameScene()` aim the camera at the selected node or the whole scene and move it to the distance where they fit.
+  - 3D scene tool: holding Shift during an orbit in the scene editor snaps the view to the nearest of the front, back, side, top and bottom views.
 - **Renderer**
   - `Paplico.whenDocumentDrawn()` resolves once the document is drawn on every canvas with the images, text and brush textures it needs, and the GPU has finished.
 
 ### Changed
 
 - **Breaking API changes**
+  - `Reference3D` is renamed to `Scene3D` in every type, function, tool and `uiState` name. The element type is `"scene3d"`, the tool is `"scene3d"` and the scene definitions are `Document.scenes3d`. Files and rooms stored under the former names are migrated when opened, and earlier versions cannot read what this version saves.
+  - `ToolContext.reference3dEdit` is removed. Use `scene3dOpenEditor` instead.
   - `YjsProvider.groupElements` accepts a layer or group ID as its first argument. `groupElementsInGroup` is removed. Use `groupElements` instead.
+- **Tools**
+  - 3D scene tool: an orbit turns around the selected node instead of the camera's target.
+  - 3D scene tool: a press on empty space deselects the node on release without a drag instead of on press.
 
 ### Fixed
 

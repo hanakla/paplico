@@ -224,7 +224,7 @@ const TOOL_TYPES: ReadonlySet<string> = new Set(
 		"bucket-fill": true,
 		"stroke-width-edit": true,
 		eyedropper: true,
-		reference3d: true,
+		scene3d: true,
 	} satisfies Record<ToolType, true>),
 );
 

@@ -17,8 +17,8 @@ import {
 	type ImageObject,
 	type MeshArtObject,
 	type Path,
-	type Reference3DElement,
 	type RepeatObject,
+	type Scene3DElement,
 	type StrokeAppearance,
 	type TextElement,
 	type Viewport,
@@ -55,6 +55,7 @@ import { migTransformOrigin } from "./20260929_mig_transform_origin";
 import { migCornerRadiusArc } from "./20261012_mig_corner_radius_arc";
 import { migGuideOnAnyElement } from "./20261112_mig_guide_on_any_element";
 import { migDropFontStyle } from "./20261115_mig_drop_font_style";
+import { migScene3DRename } from "./20261122_mig_scene3d_rename";
 import {
 	applyMigration,
 	applyMigrations,
@@ -1893,8 +1894,8 @@ describe("migTransformOrigin (20260929)", () => {
 	});
 
 	it("should turn a 3D reference around its rect centre", () => {
-		const reference: Reference3DElement = {
-			type: "reference3d",
+		const reference: Scene3DElement = {
+			type: "scene3d",
 			id: "r",
 			sceneId: "scene",
 			camera: {
@@ -2436,6 +2437,50 @@ describe("migDropFontStyle (20261115)", () => {
 			{ fontFamily: "Test" },
 			{ fontFamily: "Test", fontVariationSettings: { ital: 0 } },
 		]);
+	});
+});
+
+describe("migScene3DRename (20261122)", () => {
+	const legacyScene = () => ({
+		id: "s1",
+		type: "reference3d",
+		sceneId: "scene",
+		x: 10,
+		y: 10,
+		width: 200,
+		height: 100,
+		transform: { ...IDENTITY_TRANSFORM, rotation: 0.5 },
+	});
+
+	it("should store a 3D scene element under the scene3d type", () => {
+		const scene = legacyScene();
+		const path = makeLegacyPath({ filters: [] });
+		const doc = makeDoc({ s1: scene, p1: path }, 20261115);
+
+		applyMigration(doc, migScene3DRename);
+
+		expect(doc.schemaVersion).toBe(20261122);
+		expect(scene.type).toBe("scene3d");
+		expect(path.type).toBe("path");
+	});
+
+	it("should rename the element before the migrations that measure it run", () => {
+		const stored = makeDoc(
+			{ s1: legacyScene() },
+			migTransformOrigin.version - 1,
+		);
+		const renamed = makeDoc(
+			{ s1: { ...legacyScene(), type: "scene3d" } },
+			migTransformOrigin.version - 1,
+		);
+
+		applyMigrations(stored);
+		applyMigrations(renamed);
+
+		// The transform origin migration turns the scene around its rect
+		// centre, which it can only find on an element it knows the type of.
+		expect(stored.objects.s1).toEqual(renamed.objects.s1);
+		expect(stored.objects.s1.transform).not.toEqual(legacyScene().transform);
 	});
 });
 

@@ -10,6 +10,7 @@ import {
 	LATEST_SCHEMA_VERSION,
 	needsWholeDocumentMigration,
 } from "../io/migrations";
+import { LEGACY_SCENES3D_KEY } from "../io/migrations/20261122_mig_scene3d_rename";
 import { decodeTimelapseBlock } from "../io/papf/reader";
 import {
 	type ChangedElementsAccumulator,
@@ -349,7 +350,8 @@ export class TimelapsePlayer {
 		doc.getMap("brushPresets").observe(markOther);
 		doc.getMap("appearancePresets").observe(markOther);
 		doc.getMap("defs").observeDeep(markOther);
-		doc.getMap("references3d").observeDeep(markOther);
+		doc.getMap("scenes3d").observeDeep(markOther);
+		doc.getMap(LEGACY_SCENES3D_KEY).observeDeep(markOther);
 	}
 
 	private tick = async (): Promise<void> => {

@@ -14,6 +14,7 @@ import type {
 	EmbeddedFile,
 	Filter,
 	Group,
+	Scene3DCamera,
 	Viewport,
 } from "../../schema";
 import type {
@@ -97,8 +98,8 @@ export interface ViewportState {
 	drawRegion?: BoundingBox | null;
 }
 
-/** Cached Reference3D render result. The hash encodes every render input. */
-export interface Reference3DTextureCacheEntry {
+/** Cached Scene3D render result. The hash encodes every render input. */
+export interface Scene3DTextureCacheEntry {
 	texture: GPUTexture;
 	hash: string;
 }
@@ -109,11 +110,11 @@ export interface AssetState {
 	pendingBrushTextureLoads: Set<string>;
 	onRequestRender?: () => void;
 	/**
-	 * Reference3D textures keyed by element id. Lazily created by
-	 * Reference3DElementRenderer; destroyed via ElementRenderer.destroyReference3DTextures
+	 * Scene3D textures keyed by element id. Lazily created by
+	 * Scene3DElementRenderer; destroyed via ElementRenderer.destroyScene3DTextures
 	 * (called from RenderOrchestrator destroy / releaseGPUResources).
 	 */
-	reference3dTextureCache?: Map<string, Reference3DTextureCacheEntry>;
+	scene3dTextureCache?: Map<string, Scene3DTextureCacheEntry>;
 }
 
 export interface CompositeState {
@@ -131,9 +132,14 @@ export interface CompositeState {
 
 export interface RenderState {
 	editingScopeStack: string[];
-	/** Reference3D edit isolation: element kept at full opacity over the dim. */
+	/** Scene3D edit isolation: element kept at full opacity over the dim. */
 	isolatedElementId: string | null;
-	/** True during image export: gate reference3d elements on includeInExport. */
+	/**
+	 * Camera of the scene editor open on `isolatedElementId`. While set, the
+	 * element is dimmed with the rest and its scene is drawn over the canvas.
+	 */
+	scene3dEditorCamera: Scene3DCamera | null;
+	/** True during image export: gate scene3d elements on includeInExport. */
 	isExport: boolean;
 	/** Reference to SpatialIndex bounds cache to skip per-element bounds recomputation. */
 	boundsCache: WorldBoundsCache | null;

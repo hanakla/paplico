@@ -13,15 +13,26 @@ export function EditingScopeBreadcrumb() {
 	const snap = useSnapshot(paplico.uiState);
 	const t = useTranslation();
 
+	// The scene editor is a session of the 3D tool, so leaving the tool closes it.
+	const closeSceneEditor = () => {
+		if (snap.scene3dEditorCamera) paplico.tools.setCurrentTool("select");
+	};
+
 	const handleRootClick = useEventCallback(() => {
+		closeSceneEditor();
 		paplico.selection.exitEditingScope();
 	});
 
 	const handleScopeClick = useEventCallback((elementId: string) => {
+		closeSceneEditor();
 		paplico.selection.navigateToScopeLevel(elementId);
 	});
 
-	const stack = snap.editingScopeStack;
+	// An open scene editor reads as one more scope below the editing scopes.
+	const stack =
+		snap.scene3dEditorCamera && snap.scene3dEditingElementId
+			? [...snap.editingScopeStack, snap.scene3dEditingElementId]
+			: snap.editingScopeStack;
 	if (stack.length === 0) return null;
 
 	// A session's scope entry is the working layer it lends the tools, not an

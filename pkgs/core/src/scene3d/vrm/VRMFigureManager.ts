@@ -21,7 +21,7 @@ interface FigureEntry {
 }
 
 /**
- * Figure-node-keyed VRM instances for the Reference3D runtime (lazy three chunk).
+ * Figure-node-keyed VRM instances for the Scene3D runtime (lazy three chunk).
  *
  * Every figure node gets its own parsed VRM — three-vrm has no
  * official clone, and multiple nodes sharing one fileUid must coexist in the

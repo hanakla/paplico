@@ -1,9 +1,6 @@
 import type { Font } from "@cantoo/fontkit";
 import type { PaintedHit, SnapResult } from "../document/SpatialIndex";
 import type { PaplicoCommands } from "../PaplicoCommands";
-import type { Reference3DRaycastRequest } from "../reference3d";
-import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
-import type { IKRigData } from "../reference3d/vrm/ikSolver";
 import type { DirtyReason } from "../renderer/RenderScheduler";
 import type { ToolSession } from "../renderer/types";
 import type { OverlayHit } from "../renderer/ui/hitTest";
@@ -13,6 +10,13 @@ import type {
 	ArtboardSelectionUIData,
 	SelectionUIData,
 } from "../renderer/ui/types";
+import type {
+	Scene3DBounds,
+	Scene3DBoundsRequest,
+	Scene3DRaycastRequest,
+} from "../scene3d";
+import type { PerspectiveGuideData } from "../scene3d/perspective/vanishingPoints";
+import type { IKRigData } from "../scene3d/vrm/ikSolver";
 import type {
 	AnyArtObject,
 	Artboard,
@@ -25,9 +29,9 @@ import type {
 	FontSource,
 	Layer,
 	Path,
-	Reference3DCamera,
-	Reference3DDef,
-	Reference3DNode,
+	Scene3DCamera,
+	Scene3DDef,
+	Scene3DNode,
 	StrokeAppearance,
 	StrokeColor,
 	TextElement,
@@ -45,7 +49,7 @@ import type { AxisFlip } from "../utils/geometry/reshape/resize";
 import type { WorldBezierSegment } from "../utils/geometry/space/coordinates";
 import type { SelectionFrame } from "../utils/geometry/space/selectionFrame";
 import type { PathEditMode } from "./PathEditTool";
-import type { Reference3DController } from "./Reference3DController";
+import type { Scene3DController } from "./Scene3DController";
 import type { SelectionStyleSummary } from "./TextTool";
 import type { TextToolController } from "./TextToolController";
 import type { BucketFillLeakState } from "./toolSettings";
@@ -62,7 +66,7 @@ type ToolRenderRequestReason = Extract<
 
 export type ToolContextOptions = {
 	textToolController: TextToolController | null;
-	reference3dController: Reference3DController | null;
+	scene3dController: Scene3DController | null;
 
 	strokeComplete: (path: Path) => void;
 	previewUpdate: (preview: Path | null) => void;
@@ -170,45 +174,47 @@ export type ToolContextOptions = {
 	) => string[];
 	textEdit: (element: AnyArtObject) => void;
 
-	// reference3d tool
-	/** Switch to the reference3d tool and enter edit mode for the element. */
-	reference3dEdit: (element: AnyArtObject) => void;
-	/** Leave reference3d editing (switches back to the select tool). */
-	reference3dExitEdit: () => void;
+	// scene3d tool
+	/** Switch to the scene3d tool and open the scene editor on the element. */
+	scene3dOpenEditor: (element: AnyArtObject) => void;
+	/** Leave scene3d editing (switches back to the select tool). */
+	scene3dExitEdit: () => void;
 	/** Create a shared scene (floor + box) + a viewing element centered at
 	 *  world (x, y), optionally with an explicit element size. */
-	reference3dCreate: (
+	scene3dCreate: (
 		x: number,
 		y: number,
 		width?: number,
 		height?: number,
 	) => AnyArtObject | null;
 	/** Scene definition lookup — returns the drag-preview state when active. */
-	reference3dGetDef: (sceneId: string) => Reference3DDef | null;
-	reference3dAddNode: (sceneId: string, node: Reference3DNode) => void;
-	reference3dCommitNode: (
+	scene3dGetDef: (sceneId: string) => Scene3DDef | null;
+	scene3dAddNode: (sceneId: string, node: Scene3DNode) => void;
+	scene3dCommitNode: (
 		sceneId: string,
 		nodeId: string,
-		patch: Partial<Reference3DNode>,
+		patch: Partial<Scene3DNode>,
 	) => void;
 	/** Yjs-bypassing camera preview for drags (null = clear). */
-	reference3dPreviewCamera: (
+	scene3dPreviewCamera: (
 		elementId: string,
-		camera: Reference3DCamera | null,
+		camera: Scene3DCamera | null,
 	) => void;
 	/** Yjs-bypassing scene-node preview for gizmo drags (null = clear). */
-	reference3dPreviewNodes: (
+	scene3dPreviewNodes: (
 		sceneId: string,
-		nodes: readonly Reference3DNode[] | null,
+		nodes: readonly Scene3DNode[] | null,
 	) => void;
 	/** Pick a scene node through the camera; null until the 3D runtime loads. */
-	reference3dRaycastNode: (request: Reference3DRaycastRequest) => string | null;
+	scene3dRaycastNode: (request: Scene3DRaycastRequest) => string | null;
+	/** Box around the requested scene nodes, or null while none has geometry. */
+	scene3dGetNodeBounds: (request: Scene3DBoundsRequest) => Scene3DBounds | null;
 	/** Set (or clear) the perspective-ruler guide source element. */
-	reference3dSetGuideSource: (elementId: string | null) => void;
+	scene3dSetGuideSource: (elementId: string | null) => void;
 	/** Perspective ruler guides derived from the active guide source, if any. */
 	getPerspectiveGuides: () => PerspectiveGuideData | null;
 	/** Normalized rest rig of a loaded VRM figure; null until it has loaded. */
-	reference3dGetFigureRig: (fileUid: string) => IKRigData | null;
+	scene3dGetFigureRig: (fileUid: string) => IKRigData | null;
 
 	snapElements: (
 		movingElementIds: string[],

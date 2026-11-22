@@ -9,8 +9,8 @@ import {
 	getTransform,
 	type ImageObject,
 	type MeshArtObject,
-	type Reference3DElement,
 	type RepeatObject,
+	type Scene3DElement,
 	type TextElement,
 } from "../../schema";
 import { bakeCompoundPathSegments } from "./generate/compoundBake";
@@ -102,7 +102,7 @@ function calculateGroupBounds(
  * Calculate bounding box for an image element
  */
 function calculateImageBounds(
-	image: ImageObject | Reference3DElement,
+	image: ImageObject | Scene3DElement,
 ): BoundingBox {
 	// Free-transformed image: bounds enclose the warped corner vertices.
 	if (image.type === "image" && image.corners) {
@@ -412,7 +412,7 @@ export function calculateLocalElementBounds(
 		case "image":
 			result = calculateImageBounds(element);
 			break;
-		case "reference3d":
+		case "scene3d":
 			// Same center-rect placement model as ImageObject.
 			result = calculateImageBounds(element);
 			break;

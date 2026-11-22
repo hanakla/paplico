@@ -15,7 +15,7 @@ import type {
 	DefEntry,
 	HdrSettings,
 	Layer,
-	Reference3DDef,
+	Scene3DDef,
 	Viewport,
 } from "../../schema";
 import type { TimelapseData, TimelapseDirtyRect } from "../../timelapse/types";
@@ -182,7 +182,9 @@ export type MetaPayload = {
 		 * Shared 3D scene definitions. Optional — readers should default to
 		 * `{}` when absent (same lenient pattern used for defs).
 		 */
-		references3d?: Record<string, Reference3DDef>;
+		scenes3d?: Record<string, Scene3DDef>;
+		/** Former name of `scenes3d`, found in files older than the rename. */
+		references3d?: Record<string, Scene3DDef>;
 	};
 	fileManifest: FileManifestEntry[];
 	/**

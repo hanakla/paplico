@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Reference3DNode } from "../../schema";
+import type { Scene3DNode } from "../../schema";
 import {
 	SceneInstanceStore,
 	type SceneRuntimeAdapter,
@@ -26,7 +26,7 @@ function createFakeAdapter() {
 
 	const adapter: SceneRuntimeAdapter<FakeScene, FakeObject> = {
 		createScene: () => ({ children: new Set(), disposed: false }),
-		buildNode: (node: Reference3DNode) => {
+		buildNode: (node: Scene3DNode) => {
 			// Stand-in for an async/hidden node that builds to nothing (e.g. a
 			// figure still loading): primitive marked params.hidden === 1.
 			if (node.kind === "primitive" && node.params?.hidden === 1) return null;
@@ -50,7 +50,7 @@ function createFakeAdapter() {
 	return { adapter, builds };
 }
 
-function primitiveNode(id: string, x: number): Reference3DNode {
+function primitiveNode(id: string, x: number): Scene3DNode {
 	return {
 		id,
 		kind: "primitive",
@@ -143,7 +143,7 @@ describe("SceneInstanceStore", () => {
 	it("should track null-built nodes and build them once they become visible", () => {
 		const { adapter, builds } = createFakeAdapter();
 		const store = new SceneInstanceStore(adapter);
-		const hidden: Reference3DNode = {
+		const hidden: Scene3DNode = {
 			id: "hidden",
 			kind: "primitive",
 			shape: "box",
@@ -170,7 +170,7 @@ describe("SceneInstanceStore", () => {
 	it("should rebuild a figure node when only its pose changes", () => {
 		const { adapter, builds } = createFakeAdapter();
 		const store = new SceneInstanceStore(adapter);
-		const figure: Reference3DNode = {
+		const figure: Scene3DNode = {
 			id: "fig",
 			kind: "figure",
 			fileUid: "vrm-1",
@@ -186,7 +186,7 @@ describe("SceneInstanceStore", () => {
 		store.sync("scene-1", [{ ...figure }]);
 		expect(builds).toEqual(["fig"]);
 
-		const posed: Reference3DNode = {
+		const posed: Scene3DNode = {
 			...figure,
 			pose: { bones: { leftUpperArm: [0, 0, 0.383, 0.924] } },
 		};

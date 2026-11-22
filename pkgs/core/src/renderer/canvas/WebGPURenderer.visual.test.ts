@@ -8,12 +8,12 @@ import {
 	createDefaultLayer,
 	createStrokeBrushSettings,
 } from "../../document/factory";
-import { Reference3DService } from "../../reference3d/Reference3DService";
+import { Scene3DService } from "../../scene3d/Scene3DService";
 import type {
 	BrushSettings,
 	Document,
 	Path,
-	Reference3DElement,
+	Scene3DElement,
 	StrokeWidthPoint,
 } from "../../schema";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
@@ -552,23 +552,20 @@ describe("WebGPU Visual Regression - testDocument.ts全機能", () => {
 		texture.destroy();
 	});
 
-	// The document's reference3d element is a flat view; the lineart case
+	// The document's scene3d element is a flat view; the lineart case
 	// re-tags it so both three.js display modes are pinned.
 	for (const displayMode of ["flat", "lineart"] as const) {
-		it(`Artboard '3D Scene' - reference3d ${displayMode} view`, async () => {
+		it(`Artboard '3D Scene' - scene3d ${displayMode} view`, async () => {
 			const { renderer } = await createTestRenderer();
-			const service = new Reference3DService({
+			const service = new Scene3DService({
 				device: renderer.getDevice()!,
 			});
 			onTestFinished(() => service.destroy());
 
-			const doc = withReference3DDisplayMode(
-				await loadTestDocument(),
-				displayMode,
-			);
-			renderer.setReference3DContextProvider(() => ({
+			const doc = withScene3DDisplayMode(await loadTestDocument(), displayMode);
+			renderer.setScene3DContextProvider(() => ({
 				service,
-				references3d: doc.references3d ?? {},
+				scenes3d: doc.scenes3d ?? {},
 			}));
 			const artboard = doc.artboards.find((ab) => ab.name === "3D Scene")!;
 
@@ -1138,14 +1135,14 @@ function maxAlpha(pixels: Uint8Array): number {
 	return max;
 }
 
-function withReference3DDisplayMode(
+function withScene3DDisplayMode(
 	doc: Document,
-	displayMode: Reference3DElement["displayMode"],
+	displayMode: Scene3DElement["displayMode"],
 ): Document {
 	const objects = Object.fromEntries(
 		Object.entries(doc.objects).map(([id, element]) => [
 			id,
-			element.type === "reference3d" ? { ...element, displayMode } : element,
+			element.type === "scene3d" ? { ...element, displayMode } : element,
 		]),
 	);
 	return { ...doc, objects };

@@ -1,6 +1,6 @@
 import * as THREE from "three/webgpu";
 import { createDefaultLineart3DParams } from "../document/factory";
-import type { Reference3DCamera, Reference3DNode } from "../schema";
+import type { Scene3DCamera, Scene3DNode } from "../schema";
 import { LineartPipeline } from "./lineart/LineartPipeline";
 import { GLBMeshCache } from "./runtime/GLBMeshCache";
 import {
@@ -18,17 +18,20 @@ import {
 	type SceneRuntimeAdapter,
 } from "./runtime/SceneInstanceStore";
 import type {
-	Reference3DFileResolver,
-	Reference3DRaycastRequest,
-	Reference3DRenderRequest,
-	Reference3DScenePixels,
-	Reference3DServiceApi,
+	Scene3DBounds,
+	Scene3DBoundsRequest,
+	Scene3DFileResolver,
+	Scene3DPixels,
+	Scene3DRaycastRequest,
+	Scene3DRenderRequest,
+	Scene3DServiceApi,
+	Scene3DViewWindow,
 } from "./types";
 import type { IKRigData } from "./vrm/ikSolver";
 import { toThreeVrmPose } from "./vrm/pose";
 import { VRMFigureManager } from "./vrm/VRMFigureManager";
 
-interface Reference3DServiceOptions {
+interface Scene3DServiceOptions {
 	/** GPU device to render with. Absent: three.js requests its own. */
 	device?: GPUDevice;
 }
@@ -38,13 +41,13 @@ const CAMERA_NEAR = 0.05;
 const CAMERA_FAR = 200;
 
 /**
- * three.js runtime behind the Reference3DServiceApi boundary. Owns a single
+ * three.js runtime behind the Scene3DServiceApi boundary. Owns a single
  * WebGPURenderer that draws every request into an offscreen render target
  * and reads the pixels back — no canvas is ever involved, which keeps the
  * runtime usable outside a browser (Node tests) and off the per-page context
  * limits.
  */
-export class Reference3DService implements Reference3DServiceApi {
+export class Scene3DService implements Scene3DServiceApi {
 	private rendererPromise: Promise<THREE.WebGPURenderer> | null = null;
 	private contextEpoch = 0;
 	private assetsEpoch = 0;
@@ -78,19 +81,21 @@ export class Reference3DService implements Reference3DServiceApi {
 		THREE.Object3D
 	>(this.adapter);
 
-	public constructor(
-		private readonly options: Reference3DServiceOptions = {},
-	) {}
+	public constructor(private readonly options: Scene3DServiceOptions = {}) {}
 
 	public async renderScene(
-		request: Reference3DRenderRequest,
-	): Promise<Reference3DScenePixels> {
+		request: Scene3DRenderRequest,
+	): Promise<Scene3DPixels> {
 		const renderer = await this.ensureRenderer();
 
 		this.adapter.setFileResolver(request.getFileBytes ?? null);
 		const scene = this.sceneStore.sync(request.sceneId, request.nodes);
 		this.pruneFigures(request.sceneId, request.nodes);
-		const camera = createCamera(request.camera, request.width / request.height);
+		const camera = createCamera(
+			request.camera,
+			request.window?.aspect ?? request.width / request.height,
+		);
+		if (request.window) applyViewWindow(camera, request.window);
 
 		// Ground shadows without a floor node: an invisible catcher plane on
 		// its own layer plus a shadow-casting key light steered by the request.
@@ -144,7 +149,7 @@ export class Reference3DService implements Reference3DServiceApi {
 		};
 	}
 
-	public raycastNode(request: Reference3DRaycastRequest): string | null {
+	public raycastNode(request: Scene3DRaycastRequest): string | null {
 		const scene = this.sceneStore.sync(request.sceneId, request.nodes);
 		this.pruneFigures(request.sceneId, request.nodes);
 		const camera = createCamera(request.camera, request.aspect);
@@ -165,6 +170,21 @@ export class Reference3DService implements Reference3DServiceApi {
 			}
 		}
 		return null;
+	}
+
+	public getNodeBounds(request: Scene3DBoundsRequest): Scene3DBounds | null {
+		const scene = this.sceneStore.sync(request.sceneId, request.nodes);
+		const box = new THREE.Box3();
+		for (const object of scene.children) {
+			// Node roots are tagged by ThreeSceneAdapter.buildNode; the rest of
+			// the scene (lights, the shadow catcher) is not part of any node.
+			const nodeId = object.userData.sceneNodeId;
+			if (typeof nodeId !== "string") continue;
+			if (request.nodeId !== undefined && nodeId !== request.nodeId) continue;
+			box.expandByObject(object);
+		}
+		if (box.isEmpty()) return null;
+		return { min: box.min.toArray(), max: box.max.toArray() };
 	}
 
 	public getContextEpoch(): number {
@@ -201,10 +221,7 @@ export class Reference3DService implements Reference3DServiceApi {
 	}
 
 	/** Free VRM instances for figure nodes removed from the scene. */
-	private pruneFigures(
-		sceneId: string,
-		nodes: readonly Reference3DNode[],
-	): void {
+	private pruneFigures(sceneId: string, nodes: readonly Scene3DNode[]): void {
 		const liveIds = new Set<string>();
 		for (const node of nodes) {
 			if (node.kind === "figure") liveIds.add(node.id);
@@ -276,7 +293,7 @@ function unpackRows(
 class ThreeSceneAdapter
 	implements SceneRuntimeAdapter<THREE.Scene, THREE.Object3D>
 {
-	private fileResolver: Reference3DFileResolver | null = null;
+	private fileResolver: Scene3DFileResolver | null = null;
 
 	public constructor(
 		private readonly vrmManager: VRMFigureManager,
@@ -284,7 +301,7 @@ class ThreeSceneAdapter
 	) {}
 
 	/** Byte access for figure files, taken from the current render request. */
-	public setFileResolver(resolver: Reference3DFileResolver | null): void {
+	public setFileResolver(resolver: Scene3DFileResolver | null): void {
 		this.fileResolver = resolver;
 	}
 
@@ -292,7 +309,7 @@ class ThreeSceneAdapter
 		return new THREE.Scene();
 	}
 
-	public buildNode(node: Reference3DNode): THREE.Object3D | null {
+	public buildNode(node: Scene3DNode): THREE.Object3D | null {
 		const object = this.buildNodeObject(node);
 		if (object) object.userData.sceneNodeId = node.id;
 		return object;
@@ -324,7 +341,7 @@ class ThreeSceneAdapter
 		scene.clear();
 	}
 
-	private buildNodeObject(node: Reference3DNode): THREE.Object3D | null {
+	private buildNodeObject(node: Scene3DNode): THREE.Object3D | null {
 		switch (node.kind) {
 			case "primitive":
 				return buildPrimitiveObject(node);
@@ -336,7 +353,7 @@ class ThreeSceneAdapter
 	}
 
 	private buildMeshObject(
-		node: Extract<Reference3DNode, { kind: "mesh" }>,
+		node: Extract<Scene3DNode, { kind: "mesh" }>,
 	): THREE.Object3D | null {
 		this.glbCache.requestLoad(
 			node.fileUid,
@@ -355,7 +372,7 @@ class ThreeSceneAdapter
 	}
 
 	private buildFigureObject(
-		node: Extract<Reference3DNode, { kind: "figure" }>,
+		node: Extract<Scene3DNode, { kind: "figure" }>,
 	): THREE.Object3D | null {
 		// Per-node instances: the same fileUid parses once per figure
 		// node so multiple figures sharing a model coexist in the scene.
@@ -388,7 +405,10 @@ class ThreeSceneAdapter
 	}
 }
 
-function createCamera(view: Reference3DCamera, aspect: number): THREE.Camera {
+function createCamera(
+	view: Scene3DCamera,
+	aspect: number,
+): THREE.PerspectiveCamera | THREE.OrthographicCamera {
 	const camera =
 		view.projection === "orthographic"
 			? createOrthographicCamera(view, aspect)
@@ -405,8 +425,25 @@ function createCamera(view: Reference3DCamera, aspect: number): THREE.Camera {
 	return camera;
 }
 
+/** Narrow or widen the camera's frustum to the given part of its full view. */
+function applyViewWindow(
+	camera: THREE.PerspectiveCamera | THREE.OrthographicCamera,
+	window: Scene3DViewWindow,
+): void {
+	// setViewOffset measures from the top-left of a full view it takes the
+	// aspect from, so the NDC window is restated in a 2·aspect × 2 view.
+	camera.setViewOffset(
+		2 * window.aspect,
+		2,
+		(window.minX + 1) * window.aspect,
+		1 - window.maxY,
+		(window.maxX - window.minX) * window.aspect,
+		window.maxY - window.minY,
+	);
+}
+
 function createOrthographicCamera(
-	view: Reference3DCamera,
+	view: Scene3DCamera,
 	aspect: number,
 ): THREE.OrthographicCamera {
 	const height = view.orthoHeight ?? 2;

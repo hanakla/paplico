@@ -26,7 +26,7 @@ describe("collectAssetFileUids", () => {
 		const document = {
 			objects: {
 				image: { id: "image", type: "image", fileUid: "file-image" },
-				view: { id: "view", type: "reference3d", sceneId: "scene" },
+				view: { id: "view", type: "scene3d", sceneId: "scene" },
 				stroke: {
 					id: "stroke",
 					type: "path",
@@ -35,7 +35,7 @@ describe("collectAssetFileUids", () => {
 					},
 				},
 			},
-			references3d: {
+			scenes3d: {
 				scene: {
 					id: "scene",
 					nodes: [
@@ -57,7 +57,7 @@ describe("collectAssetFileUids", () => {
 	it("should leave out the models of a 3D scene no element shows", () => {
 		const document = {
 			objects: {},
-			references3d: {
+			scenes3d: {
 				scene: {
 					id: "scene",
 					nodes: [{ id: "figure", kind: "figure", fileUid: "file-vrm" }],
@@ -75,9 +75,9 @@ describe("collectAssetElementIds", () => {
 			a: { id: "a", type: "image", fileUid: "file-image" },
 			b: { id: "b", type: "image", fileUid: "file-other" },
 			c: { id: "c", type: "image", fileUid: "file-image" },
-			view: { id: "view", type: "reference3d", sceneId: "scene" },
+			view: { id: "view", type: "scene3d", sceneId: "scene" },
 		},
-		references3d: {
+		scenes3d: {
 			scene: {
 				id: "scene",
 				nodes: [{ id: "figure", kind: "figure", fileUid: "file-vrm" }],
