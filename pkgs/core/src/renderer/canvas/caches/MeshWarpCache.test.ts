@@ -77,6 +77,7 @@ function createFlowScene(headText: string) {
 			]),
 			getTextGlyphPaths: (element: TextElement) =>
 				textElementRenderer.getWarpGlyphPaths(element),
+			bakeShapeFilters: (path) => [path],
 		});
 
 	return {

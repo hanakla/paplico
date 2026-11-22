@@ -620,11 +620,61 @@ describe("warpMeshChildren", () => {
 				[guideGroup.id, guideGroup],
 			]),
 			getTextGlyphPaths: () => null,
+			bakeShapeFilters: (path) => [path],
 		});
 
 		expect(transients.map((transient) => transient.id)).toEqual([
 			`${mesh.id}::warp::${artwork.id}`,
 		]);
+	});
+
+	it("should warp what a path's shape filters make, not the bare path", () => {
+		const cage = createWarpCageFromRect(RECT);
+		// Stretch the cage to twice its width.
+		for (const vertex of cage.vertices) {
+			vertex.x *= 2;
+			for (const handle of Object.values(vertex.handles)) {
+				if (handle) handle.x *= 2;
+			}
+		}
+		const path: AnyArtObject = {
+			id: "path-1",
+			type: "path",
+			segments: [straightSegment({ x: 10, y: 50 }, { x: 40, y: 50 }, true)],
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		};
+		const mesh: MeshArtObject = {
+			id: "mesh-1",
+			type: "mesh",
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+			childIds: [path.id],
+			vertices: cage.vertices,
+			faces: cage.faces,
+		};
+
+		const { transients } = warpMeshChildren(mesh, {
+			elementsMap: new Map<string, AnyArtObject>([[path.id, path]]),
+			getTextGlyphPaths: () => null,
+			// Stands in for a shape filter that moves the path 10 to the right.
+			bakeShapeFilters: (shaped) => [
+				{
+					...shaped,
+					id: `${shaped.id}::shape0`,
+					segments: [straightSegment({ x: 20, y: 50 }, { x: 50, y: 50 }, true)],
+				},
+			],
+		});
+
+		expect(transients.map((transient) => transient.id)).toEqual([
+			`${mesh.id}::warp::${path.id}::shape0`,
+		]);
+		const segments = (transients[0] as Path).segments;
+		expect(segments[0].start?.x).toBeCloseTo(40);
+		expect(segments.at(-1)?.end.x).toBeCloseTo(100);
 	});
 
 	it("should bend an image child's interior grid along the cage curvature", () => {
@@ -659,6 +709,7 @@ describe("warpMeshChildren", () => {
 		const { transients, imageWarpGrids } = warpMeshChildren(mesh, {
 			elementsMap: new Map([[image.id, image]]),
 			getTextGlyphPaths: () => null,
+			bakeShapeFilters: (path) => [path],
 		});
 
 		expect(transients).toHaveLength(1);
@@ -737,6 +788,7 @@ describe("warpMeshChildren", () => {
 		const { transients } = warpMeshChildren(mesh, {
 			elementsMap: new Map([[gradientPath.id, gradientPath]]),
 			getTextGlyphPaths: () => null,
+			bakeShapeFilters: (path) => [path],
 		});
 		const warped = transients[0];
 		expect(warped.type).toBe("path");
@@ -800,6 +852,7 @@ describe("warpMeshChildren", () => {
 		const { transients } = warpMeshChildren(mesh, {
 			elementsMap: new Map([[square.id, square]]),
 			getTextGlyphPaths: () => null,
+			bakeShapeFilters: (path) => [path],
 		});
 		const warped = transients[0];
 		expect(warped.type).toBe("path");
@@ -865,6 +918,7 @@ describe("warpMeshChildren", () => {
 		const { transients, clipGroups } = warpMeshChildren(mesh, {
 			elementsMap: objects,
 			getTextGlyphPaths: () => null,
+			bakeShapeFilters: (path) => [path],
 		});
 
 		// The clip path never paints…
@@ -915,6 +969,7 @@ describe("warpMeshChildren", () => {
 		const { transients } = warpMeshChildren(mesh, {
 			elementsMap: new Map([[square.id, square]]),
 			getTextGlyphPaths: () => null,
+			bakeShapeFilters: (path) => [path],
 		});
 		expect(transients).toHaveLength(1);
 		const warped = transients[0];
@@ -1047,6 +1102,7 @@ describe("warpMeshChildren across face boundaries", () => {
 		const { transients } = warpMeshChildren(meshOf(cage, ["text-1"]), {
 			elementsMap: new Map([[text.id, text]]),
 			getTextGlyphPaths: () => [glyph],
+			bakeShapeFilters: (path) => [path],
 		});
 
 		expect(transients).toHaveLength(1);
@@ -1091,6 +1147,7 @@ describe("warpMeshChildren across face boundaries", () => {
 		const { imageWarpGrids } = warpMeshChildren(meshOf(cage, ["img-1"]), {
 			elementsMap: new Map([[image.id, image]]),
 			getTextGlyphPaths: () => null,
+			bakeShapeFilters: (path) => [path],
 		});
 
 		const grid = imageWarpGrids.get("mesh-1::warp::img-1");

@@ -51,6 +51,8 @@ interface MeshRendererDeps {
 	) => void;
 	/** Warp-ready glyph paths for text children (null while layout is pending). */
 	getTextGlyphPaths: (element: TextElement) => Path[] | null;
+	/** Splits a path into the paths its shape filters draw, for the warp to deform. */
+	bakeShapeFilters: (path: Path) => Path[];
 	/** The element's transform composed with its ancestors' (identity if none). */
 	getComposedTransform: (elementId: string) => ElementTransform;
 	/** Local bounds the GPU transform entry takes its origin from. */
@@ -91,6 +93,7 @@ export class MeshElementRenderer {
 		return this.deps.getMeshWarpCache().resolve(mesh, {
 			elementsMap,
 			getTextGlyphPaths: this.deps.getTextGlyphPaths,
+			bakeShapeFilters: this.deps.bakeShapeFilters,
 		});
 	}
 

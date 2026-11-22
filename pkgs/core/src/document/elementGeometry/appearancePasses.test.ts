@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Filter, Path, PathSegment, StrokeAppearance } from "../../schema";
 import { createDefaultTransform } from "../factory";
 import {
+	bakeShapeFilters,
 	collectDrawableAppearances,
 	resolveAppearancePasses,
 } from "./appearancePasses";
@@ -302,6 +303,36 @@ describe("resolveAppearancePasses", () => {
 });
 
 // ===== Test helpers =====
+
+describe("bakeShapeFilters", () => {
+	it("should return a path no shape filter changes as it is", () => {
+		const path = pathWith([stroke("plain-stroke"), solidFill("plain-fill")]);
+
+		expect(bakeShapeFilters(path, filterRenderer)).toEqual([path]);
+	});
+
+	it("should split a path into one path per appearance with its shape filters applied", () => {
+		const path = pathWith([
+			solidFill("zigzagged", {
+				colorAlpha: 0.5,
+				subFilters: [subFilter("zz", "zigzag"), subFilter("bl", "blur")],
+			}),
+			solidFill("plain-fill", { colorAlpha: 0.5 }),
+		]);
+
+		const baked = bakeShapeFilters(path, filterRenderer);
+
+		expect(baked.map((p) => p.segments[0].end.y)).toEqual([5, 0]);
+		expect(baked.map((p) => uids(p.filters as Filter[]))).toEqual([
+			["zigzagged"],
+			["plain-fill"],
+		]);
+		// The shape filter is spent; the raster one still runs on the result.
+		expect(
+			(baked[0].filters as Filter[])[0].subFilters?.map((sf) => sf.uid),
+		).toEqual(["bl"]);
+	});
+});
 
 function uids(filters: readonly Filter[]): string[] {
 	return filters.map((f) => f.uid);

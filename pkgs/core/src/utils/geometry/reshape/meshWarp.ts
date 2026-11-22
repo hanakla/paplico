@@ -566,6 +566,11 @@ export interface WarpChildrenDeps {
 	 * the element's x/y, one path per paint the text is drawn with.
 	 */
 	getTextGlyphPaths: (element: TextElement) => Path[] | null;
+	/**
+	 * Splits a path into the paths its shape filters draw, one per appearance,
+	 * so the warp deforms them too.
+	 */
+	bakeShapeFilters: (path: Path) => Path[];
 }
 
 /** A clip group inside the mesh, with its clip path warped alongside its members. */
@@ -675,8 +680,10 @@ export function warpMeshChildren(
 		id: string,
 		opacityScale: number,
 	): void => {
-		const warped = warpPath(path, ancestorT, id, opacityScale);
-		if (warped) out.push(warped);
+		for (const shaped of deps.bakeShapeFilters({ ...path, id })) {
+			const warped = warpPath(shaped, ancestorT, shaped.id, opacityScale);
+			if (warped) out.push(warped);
+		}
 	};
 
 	/** `parentMatrix` is the chain the groups between the mesh and the child
@@ -807,13 +814,20 @@ export function warpMeshChildren(
 						: applyTransformToPoint(positioned.x, positioned.y, composed);
 				};
 				for (const [index, glyph] of glyphs.entries()) {
-					out.push({
+					const shapes = deps.bakeShapeFilters({
 						...glyph,
 						id: `${tid}::g${index}`,
-						segments: warpSegments(deformPathSegments(glyph.segments, place)),
-						transform: createIdentityTransform(),
-						opacity: glyph.opacity * opacityScale,
 					});
+					for (const shaped of shapes) {
+						out.push({
+							...shaped,
+							segments: warpSegments(
+								deformPathSegments(shaped.segments, place),
+							),
+							transform: createIdentityTransform(),
+							opacity: shaped.opacity * opacityScale,
+						});
+					}
 				}
 				break;
 			}

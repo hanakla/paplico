@@ -17,6 +17,8 @@ import {
 	type FillAppearance,
 	type FillColor,
 	type Filter,
+	type FilterEntry,
+	isAppearancePresetRef,
 	isFilterEnabled,
 	type Path,
 	type PathGeometry,
@@ -176,6 +178,48 @@ export function resolveAppearancePasses(
 					: {}),
 			};
 		});
+	});
+}
+
+/**
+ * Splits `path` into one path per appearance it draws, each carrying the
+ * geometry its shape filters give it and only its own paint. A path no shape
+ * filter changes comes back as it is. A deformation applied to the result
+ * then deforms what the shape filters made as well.
+ */
+export function bakeShapeFilters(
+	path: Path,
+	filterRenderer: FilterCapabilityLookup,
+): Path[] {
+	const filters = localAppearances(path.filters);
+	const isShaped = filters.some(
+		(f) =>
+			isGeometryFilter(f, filterRenderer) ||
+			(f.subFilters ?? []).some((sf) => isGeometryFilter(sf, filterRenderer)),
+	);
+	if (!isShaped) return [path];
+	const passes = resolveAppearancePasses(path, filterRenderer);
+	if (passes.length === 0) return [path];
+
+	return passes.map(({ appearance, path: drawn }, i) => {
+		const own = {
+			...appearance,
+			subFilters: appearance.subFilters?.filter(
+				(sf) => !isGeometryFilter(sf, filterRenderer),
+			),
+		};
+		return {
+			...path,
+			id: `${path.id}::shape${i}`,
+			segments: drawn.segments,
+			filters: (path.filters ?? []).flatMap((entry): FilterEntry[] => {
+				if (isAppearancePresetRef(entry)) return [entry];
+				if (entry.processor === "fill" || entry.processor === "stroke") {
+					return entry.uid === appearance.uid ? [own] : [];
+				}
+				return isGeometryFilter(entry, filterRenderer) ? [] : [entry];
+			}),
+		};
 	});
 }
 

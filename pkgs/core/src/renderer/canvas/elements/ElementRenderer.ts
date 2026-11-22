@@ -3,6 +3,7 @@ import type {
 	PatternPlacement,
 	ResolvedAppearancePass,
 } from "../../../document/elementGeometry/appearancePasses";
+import { bakeShapeFilters } from "../../../document/elementGeometry/appearancePasses";
 import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
 import { geometryFilters } from "../../../document/elementGeometry/preFilters";
 import type {
@@ -219,6 +220,8 @@ export class ElementRenderer {
 					grid,
 				),
 			getTextGlyphPaths: (el) => this.textRenderer.getWarpGlyphPaths(el),
+			bakeShapeFilters: (path) =>
+				bakeShapeFilters(path, this.deps.filterRenderer),
 			getComposedTransform: (id) => deps.getComposedTransform(id),
 			getLocalBounds: (id) => deps.getLocalBounds(id),
 			getTransformIndex: (id) => deps.getTransformIndex(id),
