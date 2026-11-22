@@ -508,6 +508,7 @@ export class TextLayoutEngine {
 					// カーニング調整（em単位 → px変換）
 					const kerningEm = charOverride?.kerningAdjust ?? 0;
 					const sizeScale = charOverride?.sizeMultiplier ?? 1;
+					const scale = glyphScale(sizeScale, charOverride);
 
 					// Touch-type rotation widens/narrows the glyph's footprint on
 					// the line: advance by the rotated em-box projection so the
@@ -516,12 +517,13 @@ export class TextLayoutEngine {
 					let advanceAdjustPx = 0;
 					let verticalAdvanceAdjustPx = 0;
 					const sideways = isSidewaysInVertical(runStyle, glyph.char);
+					// A glyph on its side runs its width down the column
+					const widthScale = sideways ? scale.y : scale.x;
 					if (sideways) {
-						verticalAdvanceAdjustPx =
-							(glyph.advanceWidth - fontSize) * sizeScale;
+						verticalAdvanceAdjustPx = (glyph.advanceWidth - fontSize) * scale.y;
 					} else if (rotRad !== 0) {
-						const w = glyph.advanceWidth * sizeScale;
-						const h = fontSize * sizeScale;
+						const w = glyph.advanceWidth * scale.x;
+						const h = fontSize * scale.y;
 						const cos = Math.abs(Math.cos(rotRad));
 						const sin = Math.abs(Math.sin(rotRad));
 						advanceAdjustPx = w * cos + h * sin - w;
@@ -533,7 +535,7 @@ export class TextLayoutEngine {
 						char: glyph.char,
 						rawGlyphPath: glyph.path,
 						colorLayers: glyph.colorLayers,
-						advanceWidth: glyph.advanceWidth * sizeScale,
+						advanceWidth: glyph.advanceWidth * widthScale,
 						kerning: kerningEm * fontSize,
 						letterSpacingPx,
 						advanceAdjustPx,
@@ -1026,7 +1028,7 @@ export class TextLayoutEngine {
 					it.rawGlyphPath,
 					anchor.x,
 					anchor.y,
-					it.sizeScale,
+					glyphScale(it.sizeScale, it.override),
 					v.rotRad,
 					v.skewXRad,
 					v.skewYRad,
@@ -1164,7 +1166,7 @@ export class TextLayoutEngine {
 						// and wrap as an unbreakable unit
 						let unitLen = 1;
 						let advance =
-							it.fontSize * it.sizeScale +
+							emHeightOf(it) +
 							it.kerning +
 							it.letterSpacingPx +
 							it.verticalAdvanceAdjustPx;
@@ -1326,7 +1328,7 @@ export class TextLayoutEngine {
 				cursorTop -= tateChuYokoAdvance(cluster);
 				continue;
 			}
-			const fsScaled = it.fontSize * it.sizeScale;
+			const fsScaled = emHeightOf(it);
 			if (it.sideways) {
 				chars.push(
 					this.placeSideways(
@@ -1385,7 +1387,7 @@ export class TextLayoutEngine {
 					v.path,
 					anchor.x,
 					anchor.y,
-					it.sizeScale,
+					glyphScale(it.sizeScale, it.override),
 					rotation,
 					d.skewXRad,
 					d.skewYRad,
@@ -1428,7 +1430,8 @@ export class TextLayoutEngine {
 		advanceWidth: number,
 	): LayoutedChar {
 		const fsScaled = it.fontSize * it.sizeScale;
-		const x = colLeft + fsScaled * (1 - BASELINE_RATIO);
+		const scale = sidewaysGlyphScale(it.sizeScale, it.override);
+		const x = colLeft + it.fontSize * scale.y * (1 - BASELINE_RATIO);
 		const rotation = -Math.PI / 2;
 		return {
 			char: it.char,
@@ -1445,7 +1448,7 @@ export class TextLayoutEngine {
 				it.rawGlyphPath,
 				x,
 				cellTop,
-				it.sizeScale,
+				scale,
 				rotation,
 			),
 			advanceWidth,
@@ -1522,7 +1525,7 @@ export class TextLayoutEngine {
 					c.rawGlyphPath,
 					anchor.x,
 					anchor.y,
-					c.sizeScale,
+					glyphScale(c.sizeScale, c.override),
 					d.rotRad,
 					d.skewXRad,
 					d.skewYRad,
@@ -1656,7 +1659,7 @@ export class TextLayoutEngine {
 			rotation: 0,
 			fontSize,
 			font,
-			glyphPath: this.transformGlyphPath(glyph.path, cx, y, 1, 0),
+			glyphPath: this.transformGlyphPath(glyph.path, cx, y, { x: 1, y: 1 }, 0),
 			advanceWidth: glyph.advanceWidth,
 			colorLayers: glyph.colorLayers,
 			kerningOffset: 0,
@@ -1781,7 +1784,8 @@ export class TextLayoutEngine {
 							char: glyph.char,
 							rawGlyphPath: glyph.path,
 							colorLayers: glyph.colorLayers,
-							advanceWidth: glyph.advanceWidth * sizeScale,
+							advanceWidth:
+								glyph.advanceWidth * glyphScale(sizeScale, charOverride).x,
 							kerning: (charOverride?.kerningAdjust ?? 0) * fontSize,
 							letterSpacingPx,
 							advanceAdjustPx: 0,
@@ -1836,9 +1840,11 @@ export class TextLayoutEngine {
 					const kerningEm = charOverride?.kerningAdjust ?? 0;
 					const kerning = kerningEm * fontSize;
 					const sizeScale = charOverride?.sizeMultiplier ?? 1;
+					const scale = glyphScale(sizeScale, charOverride);
 
 					if (isSidewaysInVertical(runStyle, glyph.char)) {
-						const advance = glyph.advanceWidth * sizeScale;
+						// A glyph on its side runs its width down the column
+						const advance = glyph.advanceWidth * scale.y;
 						lineChars.push(
 							this.placeSideways(
 								{
@@ -1856,7 +1862,7 @@ export class TextLayoutEngine {
 									override: charOverride,
 								},
 								currentX,
-								currentY - kerning + fontSize * sizeScale * BASELINE_RATIO,
+								currentY - kerning + fontSize * scale.y * BASELINE_RATIO,
 								advance,
 							),
 						);
@@ -1873,12 +1879,12 @@ export class TextLayoutEngine {
 						glyph.path,
 					);
 					const d = charVisualDelta(charOverride, true);
-					const advScaled = glyph.advanceWidth * sizeScale;
+					const advScaled = glyph.advanceWidth * scale.x;
 					// Rotated glyphs advance by their rotated em-box projection,
 					// centered in the widened cell (flow runs downward)
 					const vAdvanceAdjust =
 						d.rotRad !== 0
-							? fontSize * sizeScale * (Math.abs(Math.cos(d.rotRad)) - 1) +
+							? fontSize * scale.y * (Math.abs(Math.cos(d.rotRad)) - 1) +
 								advScaled * Math.abs(Math.sin(d.rotRad))
 							: 0;
 					const charX = currentX + v.offsetX + d.dx;
@@ -1912,7 +1918,7 @@ export class TextLayoutEngine {
 							finalGlyphPath,
 							anchor.x,
 							anchor.y,
-							sizeScale,
+							scale,
 							charRotation,
 							d.skewXRad,
 							d.skewYRad,
@@ -1927,7 +1933,7 @@ export class TextLayoutEngine {
 
 					lineChars.push(layoutedChar);
 					currentY -=
-						fontSize * sizeScale + kerning + letterSpacingPx + vAdvanceAdjust; // 上から下へ
+						fontSize * scale.y + kerning + letterSpacingPx + vAdvanceAdjust; // 上から下へ
 					lineHeight = -currentY;
 				}
 				globalCharIndex = runStart + run.text.length;
@@ -2114,7 +2120,7 @@ export class TextLayoutEngine {
 					it.rawGlyphPath,
 					cx - (Math.cos(rotation) * it.advanceWidth) / 2,
 					cy - (Math.sin(rotation) * it.advanceWidth) / 2,
-					it.sizeScale,
+					glyphScale(it.sizeScale, it.override),
 					rotation,
 					d.skewXRad,
 					d.skewYRad,
@@ -2171,7 +2177,7 @@ export class TextLayoutEngine {
 		path: CubicBezierSegment[],
 		x: number,
 		y: number,
-		scale: number,
+		scale: { x: number; y: number },
 		rotation: number,
 		skewX = 0,
 		skewY = 0,
@@ -2183,8 +2189,8 @@ export class TextLayoutEngine {
 
 		// Linear map applied to a glyph offset (inner → outer): scale → shear → rotate.
 		const applyLinear = (px: number, py: number): Point => {
-			const sx = px * scale;
-			const sy = py * scale;
+			const sx = px * scale.x;
+			const sy = py * scale.y;
 			const hx = sx + kx * sy;
 			const hy = sy + ky * sx;
 			return { x: hx * cos - hy * sin, y: hx * sin + hy * cos };
@@ -2525,6 +2531,34 @@ function charVisualDelta(
 	};
 }
 
+/** How much `override` stretches a glyph drawn at `sizeScale`, along each glyph axis. */
+function glyphScale(
+	sizeScale: number,
+	override: CharOverride | undefined,
+): { x: number; y: number } {
+	return {
+		x: sizeScale * (override?.scaleX ?? 1),
+		y: sizeScale * (override?.scaleY ?? 1),
+	};
+}
+
+/**
+ * `glyphScale` for a glyph laid on its side, whose own axes are turned a
+ * quarter from the canvas's: the canvas height stretches its width.
+ */
+function sidewaysGlyphScale(
+	sizeScale: number,
+	override: CharOverride | undefined,
+): { x: number; y: number } {
+	const { x, y } = glyphScale(sizeScale, override);
+	return { x: y, y: x };
+}
+
+/** The height of a glyph's em box, which an upright glyph advances by down a vertical line. */
+function emHeightOf(it: ShapedCharItem): number {
+	return it.fontSize * glyphScale(it.sizeScale, it.override).y;
+}
+
 /** 縦中横クラスタの縦送り量: 最大フォントサイズ + 末尾文字の字間 */
 function tateChuYokoAdvance(cluster: ShapedCharItem[]): number {
 	const maxFs = Math.max(...cluster.map((c) => c.fontSize * c.sizeScale));
@@ -2549,7 +2583,7 @@ function sumVerticalAdvances(items: ShapedCharItem[]): number {
 			continue;
 		}
 		sum +=
-			it.fontSize * it.sizeScale +
+			emHeightOf(it) +
 			it.kerning +
 			it.letterSpacingPx +
 			it.verticalAdvanceAdjustPx;

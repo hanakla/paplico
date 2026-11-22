@@ -206,6 +206,8 @@ interface TextCharTouchBase {
 	skewX: number;
 	skewY: number;
 	sizeMultiplier: number;
+	scaleX: number;
+	scaleY: number;
 	/** Run font size for px → em conversion of the kerning axis */
 	fontSize: number;
 }
@@ -226,6 +228,8 @@ type TextCharTouchDrag =
 			kind: "scale";
 			center: { x: number; y: number };
 			startDist: number;
+			/** Press point relative to the center, in element-local axes */
+			startLocal: { x: number; y: number };
 			bases: Map<number, TextCharTouchBase>;
 	  }
 	| {
@@ -1463,6 +1467,11 @@ export class TextTool implements Tool {
 						1e-3,
 						Math.hypot(worldPos.x - center.x, worldPos.y - center.y),
 					),
+					startLocal: worldDeltaToLocal(
+						worldPos.x - center.x,
+						worldPos.y - center.y,
+						session.elementTransform,
+					),
 					bases: this.beginCharTouchDrag(session),
 				};
 				return;
@@ -1766,17 +1775,45 @@ export class TextTool implements Tool {
 			return;
 		}
 
-		const dist = Math.max(
-			1e-3,
-			Math.hypot(worldPos.x - drag.center.x, worldPos.y - drag.center.y),
+		// Shift scales the type size uniformly; a plain drag stretches the
+		// glyphs' width and height independently. Each move rewrites both from
+		// the bases so toggling Shift mid-drag never leaves the other applied.
+		if (event.shiftKey) {
+			const dist = Math.max(
+				1e-3,
+				Math.hypot(worldPos.x - drag.center.x, worldPos.y - drag.center.y),
+			);
+			const factor = clampCharTouchScale(dist / drag.startDist);
+			for (const [index, base] of drag.bases) {
+				const ov = ensureCharOverride(session.textElement, index);
+				if (!ov) continue;
+				ov.sizeMultiplier = clampCharTouchScale(base.sizeMultiplier * factor);
+				ov.scaleX = base.scaleX;
+				ov.scaleY = base.scaleY;
+			}
+			this.previewCharTouchDrag(session, (quad) =>
+				scaleQuad(quad, factor, factor, session.elementTransform.rotation),
+			);
+			return;
+		}
+
+		const local = worldDeltaToLocal(
+			worldPos.x - drag.center.x,
+			worldPos.y - drag.center.y,
+			session.elementTransform,
 		);
-		const factor = clampCharTouchScale(dist / drag.startDist);
+		const factorX = axisScaleFactor(local.x, drag.startLocal.x);
+		const factorY = axisScaleFactor(local.y, drag.startLocal.y);
 		for (const [index, base] of drag.bases) {
 			const ov = ensureCharOverride(session.textElement, index);
 			if (!ov) continue;
-			ov.sizeMultiplier = clampCharTouchScale(base.sizeMultiplier * factor);
+			ov.sizeMultiplier = base.sizeMultiplier;
+			ov.scaleX = clampCharTouchScale(base.scaleX * factorX);
+			ov.scaleY = clampCharTouchScale(base.scaleY * factorY);
 		}
-		this.previewCharTouchDrag(session, (quad) => scaleQuad(quad, factor));
+		this.previewCharTouchDrag(session, (quad) =>
+			scaleQuad(quad, factorX, factorY, session.elementTransform.rotation),
+		);
 	}
 
 	private handleCharTouchPointerUp(): void {
@@ -1806,6 +1843,10 @@ export class TextTool implements Tool {
 		/** Effective font size in px (run size × per-char multiplier) */
 		fontSize?: number;
 		kerningAdjust?: number;
+		/** Per-char width multiplier, 1 = 100% */
+		scaleX?: number;
+		/** Per-char height multiplier, 1 = 100% */
+		scaleY?: number;
 		rotation?: number;
 		skewX?: number;
 		skewY?: number;
@@ -1829,6 +1870,8 @@ export class TextTool implements Tool {
 					(findCharOverride(el, i)?.sizeMultiplier ?? 1),
 			),
 			kerningAdjust: pick((i) => findCharOverride(el, i)?.kerningAdjust ?? 0),
+			scaleX: pick((i) => findCharOverride(el, i)?.scaleX ?? 1),
+			scaleY: pick((i) => findCharOverride(el, i)?.scaleY ?? 1),
 			rotation: pick((i) => findCharOverride(el, i)?.rotation ?? 0),
 			skewX: pick((i) => findCharOverride(el, i)?.skewX ?? 0),
 			skewY: pick((i) => findCharOverride(el, i)?.skewY ?? 0),
@@ -1844,6 +1887,10 @@ export class TextTool implements Tool {
 		/** Target effective font size in px (stored as a per-char multiplier) */
 		fontSize?: number;
 		kerningAdjust?: number;
+		/** Per-char width multiplier, 1 = 100% */
+		scaleX?: number;
+		/** Per-char height multiplier, 1 = 100% */
+		scaleY?: number;
 		rotation?: number;
 		/** Horizontal shear angle in degrees */
 		skewX?: number;
@@ -1872,6 +1919,12 @@ export class TextTool implements Tool {
 			}
 			if (values.kerningAdjust !== undefined) {
 				ov.kerningAdjust = values.kerningAdjust;
+			}
+			if (values.scaleX !== undefined && values.scaleX > 0) {
+				ov.scaleX = clampCharTouchScale(values.scaleX);
+			}
+			if (values.scaleY !== undefined && values.scaleY > 0) {
+				ov.scaleY = clampCharTouchScale(values.scaleY);
 			}
 			if (values.rotation !== undefined) {
 				ov.rotation = values.rotation;
@@ -1934,6 +1987,8 @@ export class TextTool implements Tool {
 				skewX: ov?.skewX ?? 0,
 				skewY: ov?.skewY ?? 0,
 				sizeMultiplier: ov?.sizeMultiplier ?? 1,
+				scaleX: ov?.scaleX ?? 1,
+				scaleY: ov?.scaleY ?? 1,
 				fontSize: resolveCharFontSize(session.textElement, index),
 			});
 		}
@@ -3902,6 +3957,15 @@ function clampCharTouchScale(value: number): number {
 	return Math.min(CHAR_TOUCH_SCALE_MAX, Math.max(CHAR_TOUCH_SCALE_MIN, value));
 }
 
+/**
+ * Scale factor along one element-local axis from the press offset to the
+ * current offset. A press on the center line of that axis leaves it at 1.
+ */
+function axisScaleFactor(current: number, start: number): number {
+	if (Math.abs(start) < 1e-3) return 1;
+	return clampCharTouchScale(current / start);
+}
+
 /** World drag delta → element-local delta (inverse rotation, inverse scale) */
 function worldDeltaToLocal(
 	dx: number,
@@ -4103,15 +4167,32 @@ function rotateQuad(quad: TextGlyphQuad, deltaRad: number): TextGlyphQuad {
 	};
 }
 
-function scaleQuad(quad: TextGlyphQuad, factor: number): TextGlyphQuad {
-	const scale = (c: { x: number; y: number }) => ({
-		x: quad.pivot.x + (c.x - quad.pivot.x) * factor,
-		y: quad.pivot.y + (c.y - quad.pivot.y) * factor,
-	});
+/**
+ * Live-preview scale of the overlay quad around its pivot along the element's
+ * local axes, which sit at `rotation` radians in world space
+ */
+function scaleQuad(
+	quad: TextGlyphQuad,
+	factorX: number,
+	factorY: number,
+	rotation: number,
+): TextGlyphQuad {
+	const cos = Math.cos(rotation);
+	const sin = Math.sin(rotation);
+	const scale = (c: { x: number; y: number }) => {
+		const dx = c.x - quad.pivot.x;
+		const dy = c.y - quad.pivot.y;
+		const lx = (dx * cos + dy * sin) * factorX;
+		const ly = (-dx * sin + dy * cos) * factorY;
+		return {
+			x: quad.pivot.x + lx * cos - ly * sin,
+			y: quad.pivot.y + lx * sin + ly * cos,
+		};
+	};
 	return {
 		...quad,
-		width: quad.width * factor,
-		height: quad.height * factor,
+		width: quad.width * factorX,
+		height: quad.height * factorY,
 		corners: quad.corners.map(scale) as TextGlyphQuad["corners"],
 	};
 }

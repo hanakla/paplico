@@ -910,6 +910,75 @@ describe("TextLayoutEngine char touch overrides", () => {
 	});
 });
 
+describe("TextLayoutEngine char scale", () => {
+	it("should widen a char's glyph and advance across a horizontal line", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("aa");
+		element.content.paragraphs[0].runs[0].charOverrides = [
+			{ charIndex: 0, scaleX: 2 },
+		];
+
+		const result = await engine.layout(element);
+
+		// Mock glyph start (0,-1) keeps its height and doubles its width
+		const end = result.chars[0].glyphPath[0].end;
+		expect(end.x).toBeCloseTo(
+			(await engine.layout(createTextElement("a"))).chars[0].glyphPath[0].end
+				.x * 2,
+		);
+		expect(result.chars[1].x).toBeCloseTo(20);
+	});
+
+	it("should heighten a char's glyph and advance down a vertical line", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const layout = {
+			writingMode: "vertical-rl",
+			boxWidth: "auto",
+			boxHeight: "auto",
+			wordWrap: false,
+			overflow: "visible",
+		} as const;
+		const plain = await engine.layout(createTextElement("aa", { layout }));
+		const element = createTextElement("aa", { layout });
+		element.content.paragraphs[0].runs[0].charOverrides = [
+			{ charIndex: 0, scaleY: 2 },
+		];
+
+		const result = await engine.layout(element);
+
+		const plainGap = plain.chars[0].y - plain.chars[1].y;
+		expect(result.chars[0].y - result.chars[1].y).toBeCloseTo(plainGap * 2);
+	});
+});
+
+describe("TextLayoutEngine char scale on a side", () => {
+	it("should stretch a glyph laid on its side down a vertical line", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const layout = {
+			writingMode: "vertical-rl",
+			boxWidth: "auto",
+			boxHeight: "auto",
+			wordWrap: false,
+			overflow: "visible",
+		} as const;
+		const sideways = (text: string) => {
+			const element = createTextElement(text, { layout });
+			element.content.paragraphs[0].runs[0].style.textOrientation = "mixed";
+			return element;
+		};
+		const plain = await engine.layout(sideways("aa"));
+		const element = sideways("aa");
+		element.content.paragraphs[0].runs[0].charOverrides = [
+			{ charIndex: 0, scaleY: 2 },
+		];
+
+		const result = await engine.layout(element);
+
+		// The mock glyph advances 10 wide, which runs twice as long down the line
+		expect(plain.chars[1].y - result.chars[1].y).toBeCloseTo(10);
+	});
+});
+
 describe("TextLayoutEngine rotated-glyph advance", () => {
 	it("should widen both neighbour gaps by the rotated footprint", async () => {
 		const engine = new TextLayoutEngine(createMockFontManager());

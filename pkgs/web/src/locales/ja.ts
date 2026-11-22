@@ -289,6 +289,8 @@ export const ja = {
 		outline: "アウトライン化",
 		makeGuides: "ガイド化",
 		releaseGuides: "ガイド化を解除",
+		charScaleX: "水平比率",
+		charScaleY: "垂直比率",
 		charAngle: "角度",
 		charSkewX: "傾斜X",
 		charSkewY: "傾斜Y",

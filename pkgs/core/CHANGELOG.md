@@ -10,6 +10,8 @@
   - 3D scene tool: holding Shift during an orbit in the scene editor snaps the view to the nearest of the front, back, side, top and bottom views.
 - **Renderer**
   - `Paplico.whenDocumentDrawn()` resolves once the document is drawn on every canvas with the images, text and brush textures it needs, and the GPU has finished.
+- **Text**
+  - `CharOverride.scaleX` and `scaleY` stretch one character's glyph across and up. The character's advance stretches with it along the line it sits on.
 
 ### Changed
 
@@ -19,6 +21,7 @@
   - `YjsProvider.groupElements` accepts a layer or group ID as its first argument. `groupElementsInGroup` is removed. Use `groupElements` instead.
 - **Tools**
   - 3D scene tool: an orbit turns around the selected node instead of the camera's target.
+  - Text tool touch type: dragging a corner handle stretches the selected characters' width and height apart with `CharOverride.scaleX` and `scaleY` instead of scaling their size. Shift+drag scales their size. `getCharTouchSelection()` and `setCharTouchValues()` read and write the two values.
   - 3D scene tool: a press on empty space deselects the node on release without a drag instead of on press.
 
 ### Fixed

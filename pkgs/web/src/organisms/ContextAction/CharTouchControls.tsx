@@ -1,6 +1,7 @@
 "use client";
 
 import { RotateCcw } from "lucide-react";
+import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
 import { Input } from "@/components/Input";
 import { Tooltip } from "@/components/Tooltip";
@@ -10,7 +11,7 @@ import { useEventCallback } from "@/utils/hooks";
 
 /**
  * Touch-type context bar: absolute-value adjustments for the selected chars
- * (size multiplier, tracking, leading, angle). Replaces the standard element
+ * (size multiplier, tracking, leading, width, height, angle, skew). Replaces the standard element
  * actions while the touch-type mode is active.
  */
 export function CharTouchAdjustControls() {
@@ -25,6 +26,8 @@ export function CharTouchAdjustControls() {
 		(values: {
 			fontSize?: number;
 			kerningAdjust?: number;
+			scaleX?: number;
+			scaleY?: number;
 			rotation?: number;
 			skewX?: number;
 			skewY?: number;
@@ -51,6 +54,15 @@ export function CharTouchAdjustControls() {
 			if (!Number.isNaN(value) && value > 0) apply({ lineHeight: value });
 		},
 	);
+	// The fields show percent; the tool takes a multiplier
+	const handleScaleXChange = useEventCallback((value: string | undefined) => {
+		const percent = Number.parseFloat(value ?? "");
+		if (!Number.isNaN(percent) && percent > 0) apply({ scaleX: percent / 100 });
+	});
+	const handleScaleYChange = useEventCallback((value: string | undefined) => {
+		const percent = Number.parseFloat(value ?? "");
+		if (!Number.isNaN(percent) && percent > 0) apply({ scaleY: percent / 100 });
+	});
 	const handleRotationChange = useEventCallback(
 		(e: React.ChangeEvent<HTMLInputElement>) => {
 			const value = Number.parseFloat(e.target.value);
@@ -126,6 +138,46 @@ export function CharTouchAdjustControls() {
 					value={selection?.lineHeight ?? ""}
 					onChange={handleLineHeightChange}
 					placeholder={mixed(selection?.lineHeight) ?? "1.5"}
+					className="w-14"
+					disabled={disabled}
+				/>,
+			)}
+			{field(
+				t("contextActions.charScaleX"),
+				<FakeInput
+					type="number"
+					$size="xs"
+					aria-label={t("contextActions.charScaleX")}
+					step={1}
+					min={10}
+					max={1000}
+					value={
+						selection?.scaleX != null
+							? String(round3(selection.scaleX * 100))
+							: ""
+					}
+					onChange={handleScaleXChange}
+					placeholder={mixed(selection?.scaleX) ?? "100"}
+					className="w-14"
+					disabled={disabled}
+				/>,
+			)}
+			{field(
+				t("contextActions.charScaleY"),
+				<FakeInput
+					type="number"
+					$size="xs"
+					aria-label={t("contextActions.charScaleY")}
+					step={1}
+					min={10}
+					max={1000}
+					value={
+						selection?.scaleY != null
+							? String(round3(selection.scaleY * 100))
+							: ""
+					}
+					onChange={handleScaleYChange}
+					placeholder={mixed(selection?.scaleY) ?? "100"}
 					className="w-14"
 					disabled={disabled}
 				/>,

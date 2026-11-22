@@ -288,6 +288,8 @@ export const en = {
 		outline: "Outline",
 		makeGuides: "Make Guides",
 		releaseGuides: "Release Guides",
+		charScaleX: "Width",
+		charScaleY: "Height",
 		charAngle: "Angle",
 		charSkewX: "Skew X",
 		charSkewY: "Skew Y",

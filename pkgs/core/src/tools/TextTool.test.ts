@@ -1596,7 +1596,7 @@ describe("TextTool char touch mode", () => {
 		expect(overrides.find((o) => o.charIndex === 1)?.rotation).toBeCloseTo(90);
 	});
 
-	it("should scale selected chars uniformly from the corner handle", async () => {
+	it("should scale the type size uniformly when shift-dragging the corner handle", async () => {
 		const { tool, uiHitTest, textCharTouchCommit } = setupSession();
 
 		tool.onPointerDown(
@@ -1619,13 +1619,13 @@ describe("TextTool char touch mode", () => {
 			testCanvasHeight,
 		);
 		tool.onPointerMove(
-			ev(415, 297),
+			ev(415, 297, { shiftKey: true }),
 			testViewport,
 			testCanvasWidth,
 			testCanvasHeight,
 		);
 		tool.onPointerUp(
-			ev(415, 297),
+			ev(415, 297, { shiftKey: true }),
 			testViewport,
 			testCanvasWidth,
 			testCanvasHeight,
@@ -1636,6 +1636,53 @@ describe("TextTool char touch mode", () => {
 			committed.content.paragraphs[0].runs[0].charOverrides ?? []
 		).find((o) => o.charIndex === 0);
 		expect(ov?.sizeMultiplier).toBeCloseTo(2);
+		expect(ov?.scaleX ?? 1).toBeCloseTo(1);
+		expect(ov?.scaleY ?? 1).toBeCloseTo(1);
+	});
+
+	it("should stretch width and height independently when dragging the corner handle", async () => {
+		const { tool, uiHitTest, textCharTouchCommit } = setupSession();
+
+		tool.onPointerDown(
+			ev(405, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		await flush();
+
+		uiHitTest.mockReturnValue({
+			overlayKey: OVERLAY_KEYS.textCharTouch,
+			hitId: "char-touch:scale:se",
+		});
+		// Quad 0 bounds: x 0..10, y -2..8 → center (5, 3). The se corner
+		// (10, -2) sits at (+5, -5); dragging to (15, -2) gives (+10, -5)
+		tool.onPointerDown(
+			ev(410, 302),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(415, 302),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(415, 302),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		const committed = textCharTouchCommit.mock.calls[0][0] as TextElement;
+		const ov = (
+			committed.content.paragraphs[0].runs[0].charOverrides ?? []
+		).find((o) => o.charIndex === 0);
+		expect(ov?.scaleX).toBeCloseTo(2);
+		expect(ov?.scaleY).toBeCloseTo(1);
+		expect(ov?.sizeMultiplier ?? 1).toBeCloseTo(1);
 	});
 
 	it("should apply absolute panel values to the selection and report them back", async () => {

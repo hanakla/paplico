@@ -1366,6 +1366,17 @@ export interface CharOverride {
 	charIndex: number;
 	kerningAdjust?: number; // in em
 	sizeMultiplier?: number; // 1.0 = 100%
+	/**
+	 * Per-char width of the character as it stands in the element, which also
+	 * stretches its advance across a horizontal line. 1.0 = 100%
+	 */
+	scaleX?: number;
+	/**
+	 * Per-char height of the character as it stands in the element, which also
+	 * stretches its advance down a vertical line. A character laid on its side
+	 * in vertical writing stretches its width by this. 1.0 = 100%
+	 */
+	scaleY?: number;
 	baselineShift?: number; // px
 	rotation?: number; // degrees
 	/** Per-char horizontal shear angle in degrees (x sheared proportional to y) — touch-type skew */
