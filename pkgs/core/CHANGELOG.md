@@ -11,6 +11,8 @@
   - Double-clicking a copy of a repeat with the select tool edits the repeat's objects on that copy, and every copy follows. Double-clicking another copy moves editing onto it.
 - **Elements**
   - `Group.isolated` keeps the blend modes of a group's children from what is under the group.
+- **Filters**
+  - The `scribble` filter replaces a filled shape with a zig-zag hatching across its area, drawn with the shape's fill. On a stroke, it hatches the band the stroke covers and paints it with the stroke's color. It is ported from VectorCraft under the MIT License.
 - **Renderer**
   - `Paplico.whenDocumentDrawn()` resolves once the document is drawn on every canvas with the images, text and brush textures it needs, and the GPU has finished.
 - **Text**

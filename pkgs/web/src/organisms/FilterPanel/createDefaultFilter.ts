@@ -204,6 +204,24 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 			params: { amount: 0 },
 		},
 	}),
+	scribble: () => ({
+		uid: generateUid("filter"),
+		processor: "scribble",
+		paramData: {
+			version: "1",
+			params: {
+				angle: 30,
+				overlap: 0,
+				overlapVariation: 0.5,
+				strokeWidth: 3,
+				curviness: 5,
+				curvinessVariation: 0,
+				spacing: 5,
+				spacingVariation: 0.5,
+				seed: 0,
+			},
+		},
+	}),
 	transform: () => ({
 		uid: generateUid("filter"),
 		processor: "transform",

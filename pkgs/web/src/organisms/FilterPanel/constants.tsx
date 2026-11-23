@@ -10,6 +10,7 @@ import {
 	Activity,
 	AudioWaveform,
 	Box,
+	Brush,
 	Crop,
 	Cylinder,
 	Diamond,
@@ -49,6 +50,7 @@ export const FILTER_TEXT_KEYS = {
 	"path-union": "filterPanel.pathUnion",
 	"stroke-outline": "filterPanel.strokeOutline",
 	"pucker-bloat": "filterPanel.puckerBloat",
+	scribble: "filterPanel.scribble",
 	transform: "filterPanel.transform",
 	"clip-to-shape": "filterPanel.clipToShape",
 	"3d-rotate": "filterPanel.rotate3d",
@@ -145,6 +147,8 @@ export function getFilterIcon(processor: string) {
 			return <PenLine size={12} className="text-muted-foreground" />;
 		case "pucker-bloat":
 			return <Diamond size={12} className="text-muted-foreground" />;
+		case "scribble":
+			return <Brush size={12} className="text-muted-foreground" />;
 		case "transform":
 			return <Move3d size={12} className="text-muted-foreground" />;
 		case "extrude3d":

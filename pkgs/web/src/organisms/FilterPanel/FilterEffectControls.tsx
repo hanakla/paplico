@@ -36,6 +36,7 @@ import type {
 	PuckerBloatFilter,
 	Rotate3DFilter,
 	RoughFilter,
+	ScribbleFilter,
 	TransformFilter,
 	ZigzagFilter,
 } from "@paplico/core/filters";
@@ -79,6 +80,7 @@ import { RadialRotDirFilterControls } from "./ControlsRadialRotDir";
 import { Revolve3DFilterControls } from "./ControlsRevolve3D";
 import { Rotate3DFilterControls } from "./ControlsRotate3D";
 import { RoughFilterControls } from "./ControlsRough";
+import { ScribbleFilterControls } from "./ControlsScribble";
 import { SelectiveCorrectionFilterControls } from "./ControlsSelectiveCorrection";
 import { SmearFilterControls } from "./ControlsSmear";
 import { SprayingFilterControls } from "./ControlsSpraying";
@@ -176,6 +178,14 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 		return (
 			<PuckerBloatFilterControls
 				filter={filter as PuckerBloatFilter}
+				onUpdate={onUpdate}
+			/>
+		);
+	}
+	if (filter.processor === "scribble") {
+		return (
+			<ScribbleFilterControls
+				filter={filter as ScribbleFilter}
 				onUpdate={onUpdate}
 			/>
 		);

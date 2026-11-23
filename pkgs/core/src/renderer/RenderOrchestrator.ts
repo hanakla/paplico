@@ -111,6 +111,7 @@ import { PuckerBloatFilterHandler } from "./filters/PuckerBloatFilter/PuckerBloa
 import { Revolve3DFilterHandler } from "./filters/Revolve3DFilter/Revolve3DFilter";
 import { Rotate3DFilterHandler } from "./filters/Rotate3DFilter/Rotate3DFilter";
 import { RoughFilterHandler } from "./filters/RoughFilter/RoughFilter";
+import { ScribbleFilterHandler } from "./filters/ScribbleFilter/ScribbleFilter";
 import { StrokeOutlineFilterHandler } from "./filters/StrokeOutlineFilter/StrokeOutlineFilter";
 import { ScratchTexturePool } from "./filters/shared/ScratchTexturePool";
 import { SvgBlendFilterHandler } from "./filters/svg/SvgBlendFilter/SvgBlendFilter";
@@ -2773,6 +2774,10 @@ export class RenderOrchestrator {
 		const puckerBloatHandler = new PuckerBloatFilterHandler();
 		await puckerBloatHandler.initialize(this.device, this.canvasFormat);
 		filterRenderer.registerHandler("pucker-bloat", puckerBloatHandler);
+
+		const scribbleHandler = new ScribbleFilterHandler();
+		await scribbleHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("scribble", scribbleHandler);
 
 		const transformHandler = new TransformFilterHandler();
 		await transformHandler.initialize(this.device, this.canvasFormat);

@@ -219,6 +219,7 @@ Paplicoには以下のフィルターが組み込まれている。それぞれ�
 | `path-offset` | `PathOffsetFilterHandler` | pre | パスを法線方向に指定距離オフセット。適応的分割 + Tiller-Hanson 法。接合は miter / round / bevel から選べる。内向きオフセットで生じる自己交差ループは検出して取り除く |
 | `path-union` | `PathUnionFilterHandler` | pre | 重なり合う閉じたサブパスにブーリアン演算（union / intersection / difference / xor）をかける。3次ベジェを直接扱うスイープラインで、曲線を多角形に近似しない |
 | `pucker-bloat` | `PuckerBloatFilterHandler` | pre | アンカーとハンドルをサブパスの重心に対して近づけ・遠ざけて、収縮（星形）と膨張（風船形）を作る |
+| `scribble` | `ScribbleFilterHandler` | pre | 塗りの範囲を、角度と間隔を決めたジグザグの線で埋め、線幅の輪郭にして塗りで描かせる。線に掛けると、線が覆う帯を埋めて線の色で塗る。VectorCraft から MIT License で移植 |
 
 > [!TIP]
 > 新しいフィルターをレンダラーに追加するには、`FilterHandler` インターフェースを実装したクラスを作成し、`RenderOrchestrator` の初期化処理で `filterRenderer.registerHandler(processorId, handler)` を呼ぶ。通常は `FilterRenderer` 側に分岐を足す必要はなく、必要なメタデータ（`getRenderConfigure`, `getExpansionMargin` など）をそのハンドラー側で定義する。フィルターパネルから追加できるようにするには、カタログとUIへの登録も要る。手順は[フィルターオーサリングガイド](/devdocs/renderer/filter-authoring)にまとめている。
@@ -254,7 +255,7 @@ Paplicoには以下のフィルターが組み込まれている。それぞれ�
 |---|---|
 | Appearance | `fill`, `stroke` |
 | 3D | `extrude3d`, `revolve3d`, `3d-rotate` |
-| Geometry | `zigzag`, `path-offset`, `path-union`, `pucker-bloat`, `transform` |
+| Geometry | `zigzag`, `path-offset`, `path-union`, `pucker-bloat`, `scribble`, `transform` |
 | Mask | `clip-to-shape` |
 | Blur | `blur`, `frost-glass`, `hk:bloom`, `hk:directional-blur`, `hk:kirakira`, `hk:radial-rot-dir`, `hk:husky` |
 | Color | `hk:gradient-map`, `hk:posterization`, `hk:color-replacement`, `hk:selective-correction` |

@@ -157,6 +157,10 @@ export type {
 } from "./Rotate3DFilter/Rotate3DFilter";
 // --- Pre-Filters (Geometry) ---
 export type { RoughFilter, RoughParams } from "./RoughFilter/RoughFilter";
+export type {
+	ScribbleFilter,
+	ScribbleParams,
+} from "./ScribbleFilter/ScribbleFilter";
 // --- SVG filter primitives ---
 export type {
 	SvgBlendFilter,

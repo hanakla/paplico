@@ -19,6 +19,7 @@ export const FILTER_CATALOG: FilterCatalogEntry[] = [
 	{ processor: "path-union", category: "Geometry" },
 	{ processor: "stroke-outline", category: "Geometry" },
 	{ processor: "pucker-bloat", category: "Geometry" },
+	{ processor: "scribble", category: "Geometry" },
 	{ processor: "transform", category: "Geometry" },
 	{ processor: "clip-to-shape", category: "Mask" },
 	{ processor: "blur", category: "Blur" },
