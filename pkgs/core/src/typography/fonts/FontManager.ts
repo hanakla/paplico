@@ -53,8 +53,6 @@ export interface ShapingOptions {
 	direction?: "ltr" | "rtl";
 	script?: string; // ISO 15924 script tag
 	language?: string; // BCP 47 language tag
-	/** When true, all glyphs are replaced with fallback font's .notdef (tofu). */
-	forceNotdef?: boolean;
 }
 
 /**
@@ -460,7 +458,7 @@ export class FontManager extends Emitter<FontManagerEvents> {
 		fontSize: number,
 		options: ShapingOptions = {},
 	): Promise<ShapedGlyph[]> {
-		const { letterSpacing = 0, features = {}, forceNotdef = false } = options;
+		const { letterSpacing = 0, features = {} } = options;
 		// Exclude control characters to avoid rendering .notdef glyphs for line breaks.
 		const cleanText = text.replace(/[\n\r\t]/g, "");
 		if (cleanText.length === 0) return [];
@@ -521,14 +519,13 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			let outline: GlyphOutline;
 			let advanceWidth = position.xAdvance * scale;
 
-			const useNotdef = (forceNotdef || glyph.id === 0) && char.trim() !== "";
+			const useNotdef = glyph.id === 0 && char.trim() !== "";
 
 			if (useNotdef) {
 				const fallback = await this.getFallbackFont();
-				// A missing font shows as .notdef on purpose. A font that only
-				// lacks this character borrows it from the fallback font.
+				// A font that lacks this character borrows it from the fallback font.
 				const substitute = fallback.fontkit.glyphForCodePoint(
-					forceNotdef ? 0 : (char.codePointAt(0) ?? 0),
+					char.codePointAt(0) ?? 0,
 				);
 				if (!substitute) {
 					throw new Error("Fallback font has no .notdef glyph");

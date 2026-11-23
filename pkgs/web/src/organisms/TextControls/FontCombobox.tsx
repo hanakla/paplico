@@ -76,6 +76,14 @@ export const FontCombobox = memo(function FontCombobox({
 		},
 	);
 
+	// A font that no loader lists cannot be drawn as itself
+	const isUnlisted =
+		!isLoading &&
+		currentFont !== undefined &&
+		!fonts.some((font) => isFontEqual(font, currentFont));
+	// While the picker is open the input shows the search query instead
+	const showUnlistedName = isUnlisted && !open;
+
 	const handleOpenChange = useEventCallback((isOpen: boolean) => {
 		setOpen(isOpen);
 	});
@@ -150,8 +158,17 @@ export const FontCombobox = memo(function FontCombobox({
 				<Combobox2.Input
 					$size="xs"
 					clearable={false}
+					className={twm(showUnlistedName && "text-transparent")}
 					placeholder={placeholder ?? t("actionsPanel.selectFont")}
 				/>
+				{/* An input cannot style part of its value, so the name is laid over it */}
+				{showUnlistedName && (
+					<span className="pointer-events-none absolute inset-y-0 left-px right-8 flex items-center pl-1.5 text-xs">
+						<span className="truncate rounded-xs bg-warn/40">
+							{currentFont?.family}
+						</span>
+					</span>
+				)}
 			</div>
 
 			<Combobox2.Popup className="min-w-72">

@@ -22,7 +22,7 @@ export function TextStyleActions() {
 	const {
 		fonts,
 		isLoading: fontsLoading,
-		currentFont,
+		pickerFont,
 		currentFontSize,
 		isMixed: fontIsMixed,
 		isMixedSize,
@@ -65,7 +65,7 @@ export function TextStyleActions() {
 			<div className="w-36 flex-none">
 				<FontCombobox
 					fonts={fonts}
-					currentFont={currentFont}
+					currentFont={pickerFont}
 					isLoading={fontsLoading}
 					isMixed={fontIsMixed}
 					onFontChange={handleFontChange}

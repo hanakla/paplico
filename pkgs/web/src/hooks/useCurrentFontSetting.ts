@@ -13,10 +13,21 @@ import { useEventCallback } from "@/utils/hooks";
 // Main hook: useActiveFontSettings
 // ---------------------------------------------------------------------------
 
+type CurrentFontStyle = {
+	fontFamily: string | undefined;
+	fontSource: FontSource | undefined;
+};
+
 interface ActiveFontSettings {
 	fonts: FontMetadata[];
 	isLoading: boolean;
+	/** The font of the selection, as the font list has it. */
 	currentFont: FontMetadata | undefined;
+	/**
+	 * The font the font picker shows. A font that no loader lists is
+	 * described from the name the text keeps.
+	 */
+	pickerFont: FontMetadata | undefined;
 	currentFontSize: number;
 	currentFontWeight: number | undefined;
 	fontFaces: FontMetadata[];
@@ -62,37 +73,51 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		[textElements],
 	);
 
-	// Resolve current font
-	const currentFont = useMemo(() => {
+	// The font the selection names, or undefined when its runs name several
+	const currentFontStyle = useMemo((): CurrentFontStyle | undefined => {
 		if (isTextEditing) {
 			const style = uiSnap.textEditState.selectionStyle?.style;
-			return findMatchingFont(
-				fonts,
-				style && !style.fontFamily.mixed ? style.fontFamily.value : undefined,
-				style && !style.fontSource.mixed ? style.fontSource.value : undefined,
-			);
+			return {
+				fontFamily:
+					style && !style.fontFamily.mixed ? style.fontFamily.value : undefined,
+				fontSource:
+					style && !style.fontSource.mixed ? style.fontSource.value : undefined,
+			};
 		}
 
 		if (textStyles.length > 0) {
 			const families = textStyles.map((style) => style.fontFamily);
 			if (new Set(families).size > 1) return undefined; // mixed
-			const style = textStyles[0];
-			return findMatchingFont(fonts, style.fontFamily, style.fontSource);
+			return textStyles[0];
 		}
 
 		// Fallback to textDefaultStyle
-		return findMatchingFont(
-			fonts,
-			toolSnap.textDefaultStyle.fontFamily,
-			toolSnap.textDefaultStyle.fontSource as FontSource,
-		);
+		return {
+			fontFamily: toolSnap.textDefaultStyle.fontFamily,
+			fontSource: toolSnap.textDefaultStyle.fontSource as FontSource,
+		};
 	}, [
-		fonts,
 		textStyles,
 		isTextEditing,
 		uiSnap.textEditState.selectionStyle,
 		toolSnap.textDefaultStyle,
 	]);
+
+	const currentFont = useMemo(
+		() =>
+			findMatchingFont(
+				fonts,
+				currentFontStyle?.fontFamily,
+				currentFontStyle?.fontSource,
+			),
+		[fonts, currentFontStyle],
+	);
+
+	// A font no loader lists still shows its name in the picker
+	const pickerFont = useMemo(
+		() => currentFont ?? unlistedFont(currentFontStyle),
+		[currentFont, currentFontStyle],
+	);
 
 	// Resolve mixed state for font family
 	const isMixed = useMemo(() => {
@@ -272,6 +297,7 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		fonts,
 		isLoading,
 		currentFont,
+		pickerFont,
 		currentFontSize,
 		currentFontWeight,
 		fontFaces,
@@ -389,6 +415,23 @@ function findMatchingFont(
 	// Fall back to family name match (case-insensitive)
 	const lower = fontFamily.toLowerCase();
 	return fonts.find((f) => f.family.toLowerCase() === lower);
+}
+
+/** Describes a font that the text names but no loader lists. */
+function unlistedFont(
+	style: CurrentFontStyle | undefined,
+): FontMetadata | undefined {
+	if (!style?.fontFamily) return undefined;
+	const fontId = style.fontSource?.fontId ?? style.fontFamily;
+	return {
+		family: style.fontFamily,
+		fullName: style.fontFamily,
+		postScriptName: fontId,
+		style: "",
+		weight: 400,
+		loaderId: style.fontSource?.loaderId ?? "",
+		fontId,
+	};
 }
 
 /**

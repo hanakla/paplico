@@ -182,7 +182,7 @@ function StrokeWidthControl({
 
 export function FontFamilyControl() {
 	const t = useTranslation();
-	const { fonts, isLoading, currentFont, isMixed, handleFontChange } =
+	const { fonts, isLoading, pickerFont, isMixed, handleFontChange } =
 		useActiveFontSettings();
 	const { previewReady, previewRef } = useFontPreview();
 
@@ -193,7 +193,7 @@ export function FontFamilyControl() {
 			</span>
 			<FontCombobox
 				fonts={fonts}
-				currentFont={currentFont}
+				currentFont={pickerFont}
 				isLoading={isLoading}
 				isMixed={isMixed}
 				onFontChange={handleFontChange}

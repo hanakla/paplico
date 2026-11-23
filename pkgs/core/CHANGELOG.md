@@ -28,6 +28,9 @@
   - 3D scene tool: a press on empty space deselects the node on release without a drag instead of on press.
 - **Elements**
   - A group with an opacity of its own lets the blend modes of its children reach what is under the group instead of only what the group holds. Set `Group.isolated` to keep them inside the group.
+  - A mesh warp deforms what the shape filters of its children make, such as a path offset, instead of applying those filters to the warped shape.
+- **Text**
+  - Text in a font that cannot be loaded draws with the fallback font instead of as tofu boxes. The text keeps naming its own font.
 
 ### Fixed
 

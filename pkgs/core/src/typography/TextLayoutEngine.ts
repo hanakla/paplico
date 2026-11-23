@@ -415,19 +415,26 @@ export class TextLayoutEngine {
 		}
 
 		// Individual failures (e.g. a nonexistent font-family) must not abort the
-		// whole layout — the run falls back to Noto Sans JP downstream.
+		// whole layout — getRunFont draws the run with the fallback font.
 		await Promise.all(
 			[...sources].map((source) =>
 				this.fontManager.loadFont(source).catch((err) => {
-					console.warn(
-						"[TextLayoutEngine] Font preload failed, falling back to Noto Sans JP:",
-						source,
-						err,
-					);
+					console.warn("[TextLayoutEngine] Font preload failed:", source, err);
 					return null;
 				}),
 			),
 		);
+	}
+
+	/**
+	 * The font a run is drawn with. A font that could not be loaded is drawn
+	 * with the built-in fallback font, while the run's style keeps naming it.
+	 */
+	private async getRunFont(runStyle: TextStyle): Promise<LoadedFont> {
+		const font =
+			this.fontManager.getLoadedFont(runStyle.fontSource) ??
+			(await this.fontManager.getFallbackFont());
+		return this.fontManager.resolveFontForStyle(font, runStyle);
 	}
 
 	/**
@@ -461,19 +468,7 @@ export class TextLayoutEngine {
 			for (let rIdx = 0; rIdx < para.runs.length; rIdx++) {
 				const run = para.runs[rIdx];
 				const runStyle = this.mergeStyles(defaultStyle, run.style);
-				let font = this.fontManager.getLoadedFont(runStyle.fontSource);
-				let fontMissing = false;
-				if (!font) {
-					console.warn(
-						"Font not loaded for fontSource:",
-						runStyle.fontSource,
-						"- falling back to Noto Sans JP",
-					);
-					font = await this.fontManager.getFallbackFont();
-					fontMissing = true;
-				}
-				if (!fontMissing)
-					font = this.fontManager.resolveFontForStyle(font, runStyle);
+				const font = await this.getRunFont(runStyle);
 				const fontSize = runStyle.fontSize;
 
 				// 行の高さを更新（グリフの有無に関わらずRunごとに反映する）
@@ -486,10 +481,7 @@ export class TextLayoutEngine {
 					font,
 					run.text,
 					fontSize,
-					{
-						letterSpacing: runStyle.letterSpacing,
-						forceNotdef: fontMissing,
-					},
+					{ letterSpacing: runStyle.letterSpacing },
 				);
 
 				// Tracking is shaped into glyph x positions by shapeText, but the
@@ -1741,19 +1733,7 @@ export class TextLayoutEngine {
 			for (let rIdx = 0; rIdx < para.runs.length; rIdx++) {
 				const run = para.runs[rIdx];
 				const runStyle = this.mergeStyles(defaultStyle, run.style);
-				let font = this.fontManager.getLoadedFont(runStyle.fontSource);
-				let fontMissing = false;
-				if (!font) {
-					console.warn(
-						"Font not loaded for fontSource:",
-						runStyle.fontSource,
-						"- falling back to Noto Sans JP",
-					);
-					font = await this.fontManager.getFallbackFont();
-					fontMissing = true;
-				}
-				if (!fontMissing)
-					font = this.fontManager.resolveFontForStyle(font, runStyle);
+				const font = await this.getRunFont(runStyle);
 				const fontSize = runStyle.fontSize;
 
 				// 列の幅を更新
@@ -1765,10 +1745,7 @@ export class TextLayoutEngine {
 					font,
 					run.text,
 					fontSize,
-					{
-						letterSpacing: runStyle.letterSpacing,
-						forceNotdef: fontMissing,
-					},
+					{ letterSpacing: runStyle.letterSpacing },
 				);
 
 				// Content-based indexing (see shapeContent)

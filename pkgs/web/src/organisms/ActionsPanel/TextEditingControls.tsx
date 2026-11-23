@@ -49,7 +49,7 @@ export const TextEditingControls = memo(function TextEditingControls() {
 
 function TextEditFontFamilyControl() {
 	const t = useTranslation();
-	const { fonts, isLoading, currentFont, isMixed, handleFontChange } =
+	const { fonts, isLoading, pickerFont, isMixed, handleFontChange } =
 		useActiveFontSettings();
 	const { previewReady, previewRef } = useFontPreview();
 
@@ -60,7 +60,7 @@ function TextEditFontFamilyControl() {
 			</span>
 			<FontCombobox
 				fonts={fonts}
-				currentFont={currentFont}
+				currentFont={pickerFont}
 				isLoading={isLoading}
 				onFontChange={handleFontChange}
 				previewReady={previewReady}

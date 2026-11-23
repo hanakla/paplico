@@ -61,6 +61,29 @@ describe("FontCombobox", () => {
 		);
 	});
 
+	it("marks only the name of a font the catalog does not list", () => {
+		const view = render(
+			fontPicker(
+				[makeFont("Noto Sans")],
+				makeFont("Toppan-BunkyuMidashiGoStdN-EB"),
+			),
+		);
+		const input = view.getByRole("combobox") as HTMLInputElement;
+
+		expect(input.value).toBe("Toppan-BunkyuMidashiGoStdN-EB");
+		expect(input.classList).not.toContain("bg-warn/40");
+		expect(view.getByText("Toppan-BunkyuMidashiGoStdN-EB").classList).toContain(
+			"bg-warn/40",
+		);
+	});
+
+	it("shows a listed font without a warning mark", () => {
+		const font = makeFont("Noto Sans");
+		const view = render(fontPicker([font], font));
+
+		expect(view.queryByText("Noto Sans")).toBeNull();
+	});
+
 	it("shows the font name when the font catalog finishes loading", () => {
 		const font = makeFont("Noto Sans");
 		const view = render(fontPicker([]));

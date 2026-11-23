@@ -54,6 +54,28 @@ describe("useActiveFontSettings", () => {
 		expect(result.current.isMixed).toBe(false);
 	});
 
+	it("shows the name of a font that no loader lists", async () => {
+		const element = paplico.uiState.document.objects["text-1"];
+		const missing: Pick<TextStyle, "fontFamily" | "fontSource"> = {
+			fontFamily: "Toppan-BunkyuMidashiGoStdN-EB",
+			fontSource: {
+				loaderId: "local",
+				fontId: "Toppan-BunkyuMidashiGoStdN-EB",
+			},
+		};
+		Object.assign(element.defaultStyle, missing);
+		Object.assign(element.content.paragraphs[0].runs[0].style, missing);
+		const { result } = renderHook(() => useActiveFontSettings());
+		await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+		expect(result.current.currentFont).toBeUndefined();
+		expect(result.current.pickerFont).toMatchObject({
+			family: "Toppan-BunkyuMidashiGoStdN-EB",
+			loaderId: "local",
+			fontId: "Toppan-BunkyuMidashiGoStdN-EB",
+		});
+	});
+
 	it("resolves the same local face while editing its text", async () => {
 		uiState.textEditState = {
 			...defaultTextEditState,
