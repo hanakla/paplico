@@ -13,6 +13,7 @@
 - **Renderer**
   - `Paplico.whenDocumentDrawn()` resolves once the document is drawn on every canvas with the images, text and brush textures it needs, and the GPU has finished.
 - **Text**
+  - Vertical text on a path runs its column down the path, with the path through the middle of each character.
   - `CharOverride.scaleX` and `scaleY` stretch one character's glyph across and up. The character's advance stretches with it along the line it sits on.
 
 ### Changed

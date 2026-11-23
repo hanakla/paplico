@@ -373,6 +373,7 @@ export class TextLayoutEngine {
 					cursor,
 					region.element.axisBinding,
 					segments,
+					region.element.layout.writingMode === "vertical-rl",
 				);
 				results.set(region.element.id, {
 					lines: [],
@@ -2011,6 +2012,7 @@ export class TextLayoutEngine {
 			{ p: 0, idx: 0, mid: false },
 			binding,
 			segments,
+			element.layout.writingMode === "vertical-rl",
 		);
 
 		return {
@@ -2024,13 +2026,16 @@ export class TextLayoutEngine {
 
 	/**
 	 * ストリームをパス上へ流し込む。パス全長を超えた文字は打ち切り、
-	 * 継続位置を返す（flowチェーンの下流へ流れる）
+	 * 継続位置を返す（flowチェーンの下流へ流れる）。
+	 * Vertical writing runs the column down the path, with the path through
+	 * the middle of each character.
 	 */
 	private flowOntoPath(
 		shaped: ShapedStream,
 		start: FlowCursor,
 		binding: TextOnPathBinding,
 		segments: CubicBezierSegment[],
+		vertical: boolean,
 	): {
 		chars: LayoutedChar[];
 		next: FlowCursor | null;
@@ -2047,17 +2052,18 @@ export class TextLayoutEngine {
 		const arcLengths = buildArcLengthTable(segments);
 		const pathLength = arcLengths.at(-1)?.cumulativeLength ?? 0;
 		if (pathLength <= EPS) return { chars, next: null };
+		// How far a character's cell runs along the path
+		const cellLength = (it: ShapedCharItem) =>
+			vertical && !it.sideways
+				? emHeightOf(it) + it.verticalAdvanceAdjustPx
+				: it.advanceWidth + it.advanceAdjustPx;
 
 		// alignment center/right: 収まる幅を先に確定してから開始距離を決める（2パス）
 		let totalWidth = 0;
 		for (let i = start.idx; i < stream.length; i++) {
 			const it = stream[i];
 			if (it.kind === "char")
-				totalWidth +=
-					it.advanceWidth +
-					it.kerning +
-					it.letterSpacingPx +
-					it.advanceAdjustPx;
+				totalWidth += cellLength(it) + it.kerning + it.letterSpacingPx;
 		}
 		const anchor = binding.startOffset * pathLength + (binding.offset ?? 0);
 		let startDistance = anchor;
@@ -2078,17 +2084,11 @@ export class TextLayoutEngine {
 			}
 
 			// パス全長を超える文字は打ち切り（オーバーフロー）
-			if (
-				currentDistance + it.kerning + it.advanceWidth + it.advanceAdjustPx >
-				pathLength + EPS
-			)
+			if (currentDistance + it.kerning + cellLength(it) > pathLength + EPS)
 				break;
 
 			// 文字の中心位置をパス上に配置（回転で広がったセルの中央）
-			const centerDistance =
-				currentDistance +
-				it.kerning +
-				(it.advanceWidth + it.advanceAdjustPx) / 2;
+			const centerDistance = currentDistance + it.kerning + cellLength(it) / 2;
 			const pathPoint = samplePathAtArcLength(
 				segments,
 				arcLengths,
@@ -2100,10 +2100,24 @@ export class TextLayoutEngine {
 			// Touch-type deltas: the spine point doubles as the rotation pivot,
 			// so the extra rotation composes without anchor compensation
 			const d = charVisualDelta(it.override, false);
-			const cx = pathPoint.x + d.dx;
-			const cy = pathPoint.y + d.dy;
-			const rotation =
-				Math.atan2(-pathPoint.normalX, pathPoint.normalY) + d.rotRad;
+			const tangentAngle = Math.atan2(-pathPoint.normalX, pathPoint.normalY);
+			if (vertical && !it.sideways) {
+				chars.push(this.placeUprightOnPath(it, pathPoint, tangentAngle, d));
+				currentDistance += cellLength(it) + it.kerning + it.letterSpacingPx;
+				lastPlacedPara = it.paragraphIndex;
+				idx++;
+				continue;
+			}
+			// A character on its side in vertical writing centres its em box
+			// on the path, where horizontal writing sets its baseline
+			const lift = vertical
+				? -it.fontSize *
+					sidewaysGlyphScale(it.sizeScale, it.override).y *
+					(BASELINE_RATIO - 0.5)
+				: 0;
+			const cx = pathPoint.x + d.dx + pathPoint.normalX * lift;
+			const cy = pathPoint.y + d.dy + pathPoint.normalY * lift;
+			const rotation = tangentAngle + d.rotRad;
 
 			chars.push({
 				char: it.char,
@@ -2120,7 +2134,9 @@ export class TextLayoutEngine {
 					it.rawGlyphPath,
 					cx - (Math.cos(rotation) * it.advanceWidth) / 2,
 					cy - (Math.sin(rotation) * it.advanceWidth) / 2,
-					glyphScale(it.sizeScale, it.override),
+					vertical
+						? sidewaysGlyphScale(it.sizeScale, it.override)
+						: glyphScale(it.sizeScale, it.override),
 					rotation,
 					d.skewXRad,
 					d.skewYRad,
@@ -2132,8 +2148,7 @@ export class TextLayoutEngine {
 				override: it.override,
 			});
 
-			currentDistance +=
-				it.advanceWidth + it.kerning + it.letterSpacingPx + it.advanceAdjustPx;
+			currentDistance += cellLength(it) + it.kerning + it.letterSpacingPx;
 			lastPlacedPara = it.paragraphIndex;
 			idx++;
 		}
@@ -2152,6 +2167,61 @@ export class TextLayoutEngine {
 						mid: nextItem.paragraphIndex === lastPlacedPara,
 					};
 		return { chars, next, overflowStartIndex: nextItem.charIndex };
+	}
+
+	/**
+	 * An upright character of vertical writing on a path: its column cell is
+	 * centred on `point` and turned so the column runs down the path.
+	 */
+	private placeUprightOnPath(
+		it: ShapedCharItem,
+		point: { x: number; y: number },
+		tangentAngle: number,
+		d: ReturnType<typeof charVisualDelta>,
+	): LayoutedChar {
+		const v = this.resolveVerticalGlyphPlacement(
+			it.font,
+			it.char,
+			it.fontSize,
+			it.rawGlyphPath,
+		);
+		const scale = glyphScale(it.sizeScale, it.override);
+		// The column's down direction turns onto the path's direction
+		const turn = tangentAngle + Math.PI / 2;
+		const cos = Math.cos(turn);
+		const sin = Math.sin(turn);
+		// The glyph's anchor in the column cell, measured from the cell centre
+		const lx = v.offsetX - (it.fontSize * scale.x) / 2;
+		const ly = v.offsetY - emHeightOf(it) * BASELINE_RATIO + emHeightOf(it) / 2;
+		const x = point.x + d.dx + lx * cos - ly * sin;
+		const y = point.y + d.dy + lx * sin + ly * cos;
+		const rotation = turn + v.rotation + d.rotRad;
+		return {
+			char: it.char,
+			charIndex: it.charIndex,
+			charLength: it.charLength,
+			runIndex: it.runIndex,
+			paragraphIndex: it.paragraphIndex,
+			x,
+			y,
+			rotation,
+			fontSize: it.fontSize * it.sizeScale,
+			font: it.font,
+			glyphPath: this.transformGlyphPath(
+				v.path,
+				x,
+				y,
+				scale,
+				rotation,
+				d.skewXRad,
+				d.skewYRad,
+			),
+			advanceWidth: it.advanceWidth,
+			colorLayers: v.path === it.rawGlyphPath ? it.colorLayers : undefined,
+			kerningOffset: it.kerning,
+			sizeScale: it.sizeScale,
+			override: it.override,
+		};
 	}
 
 	/**

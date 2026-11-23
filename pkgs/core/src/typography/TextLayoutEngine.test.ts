@@ -150,6 +150,38 @@ describe("TextLayoutEngine on-path overflow", () => {
 		expect(result.chars[0].y).toBeCloseTo(0);
 	});
 
+	it("should run vertical writing down the path with each character turned onto it", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const result = await engine.layout(
+			createTextElement("aa", {
+				layout: {
+					writingMode: "vertical-rl",
+					boxWidth: "auto",
+					boxHeight: "auto",
+					wordWrap: false,
+					overflow: "visible",
+				},
+				axisBinding: {
+					mode: "onPath",
+					pathObjectId: "p",
+					startOffset: 0,
+					alignment: "left",
+					offsetDistance: 0,
+					orientation: "rotate",
+				},
+			}),
+			{ kind: "onPath", segments: straightPath },
+		);
+
+		// The column's down direction follows the path to the right
+		expect(result.chars.map((c) => c.rotation)).toEqual([
+			Math.PI / 2,
+			Math.PI / 2,
+		]);
+		// Each upright character takes one em of the path
+		expect(result.chars[1].x - result.chars[0].x).toBeCloseTo(10);
+	});
+
 	it("should center the text around the startOffset anchor", async () => {
 		const engine = new TextLayoutEngine(createMockFontManager());
 		const result = await engine.layout(
