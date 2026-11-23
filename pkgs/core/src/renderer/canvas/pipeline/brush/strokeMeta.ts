@@ -12,39 +12,29 @@ import {
 	type StrokeColor,
 } from "../../../../schema";
 import { calculateElementBounds } from "../../../../utils/geometry/elementBounds";
-import type { BrushFrameBuffers } from "./BrushFrameBuffers";
+import type { BrushFrameBuffers, StrokeMetaSlot } from "./BrushFrameBuffers";
 import type { StrokeDrawInput } from "./BrushRenderer";
 import { PATH_META_FLOATS } from "./shaders/dabColor.wgsl";
 
 /** ColorStop: 6 floats (24 bytes) per stop */
 export const COLOR_STOP_FLOATS = 6;
 
-/** The GPU buffers holding one stroke's PathMeta and its color stops. */
-interface StrokeMetaBuffers {
-	pathMetaBuffer: GPUBuffer;
-	colorStopsBuffer: GPUBuffer;
-}
-
 /**
- * Encode one stroke's PathMeta and color stops and upload them into
- * frame-pooled buffers. Every single-stroke draw route binds these as
- * group(1): dab, wet seed, mixed and immediate ribbon.
+ * Encode one stroke's PathMeta and color stops and upload them into the
+ * frame's stroke meta pages. Every single-stroke draw route binds the result
+ * as group(1): dab, wet seed, mixed and immediate ribbon.
  */
 export function uploadSingleStrokeMeta(
-	device: GPUDevice,
 	buffers: BrushFrameBuffers,
 	input: Omit<StrokeDrawInput, "segments">,
 	ribbonTextureAspectRatio = 1,
-): StrokeMetaBuffers {
+): StrokeMetaSlot {
 	const singleMeta = new Float32Array(PATH_META_FLOATS);
 	writeSinglePathMeta(singleMeta, 0, input, 0, ribbonTextureAspectRatio);
-	const pathMetaBuffer = buffers.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
-	device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
-
-	const stopData = buildColorStopsData(input.strokeColor);
-	const colorStopsBuffer = buffers.acquireColorStopsBuffer(stopData.byteLength);
-	device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
-	return { pathMetaBuffer, colorStopsBuffer };
+	return buffers.uploadStrokeMeta(
+		singleMeta,
+		buildColorStopsData(input.strokeColor),
+	);
 }
 
 /**

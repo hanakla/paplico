@@ -45,6 +45,9 @@
   - Fix a host being disconnected when a guest joins a device-to-device session with a large document. The relay refuses messages above 32 MiB, so the document is now sent in pieces of 8 MiB. A guest on an older version cannot read these messages.
 - **Document**
   - Fix grouping selected objects doing nothing while editing a mask.
+- **Renderer**
+  - Fix the canvas taking a little more GPU memory at every redraw of a document with artboards.
+  - Fix a redraw of many brush strokes leaving thousands of small GPU allocations behind.
 - **Tools**
   - Path edit tool: fix a click selecting an anchor of an unselected path where a clip group hides it.
 - **Text**

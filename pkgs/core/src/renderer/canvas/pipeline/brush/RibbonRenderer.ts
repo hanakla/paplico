@@ -15,7 +15,7 @@ import {
 } from "../../../../schema";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
 import { RENDER_SAMPLE_COUNT } from "../../CanvasLayerTypes";
-import type { BrushFrameBuffers } from "./BrushFrameBuffers";
+import type { BrushFrameBuffers, StrokeMetaSlot } from "./BrushFrameBuffers";
 import type { BrushDrawBindings, StrokeDrawInput } from "./BrushRenderer";
 import type { BrushTextureManager } from "./BrushTextureManager";
 import {
@@ -90,12 +90,6 @@ export class RibbonRenderer {
 		pathMetas: new FloatArena(256),
 		colorStops: new FloatArena(256),
 	};
-	/** Group(1) of the last flush, reused while the pooled buffers repeat. */
-	private cachedBindGroup1: {
-		bindGroup: GPUBindGroup;
-		pathMetaBuffer: GPUBuffer;
-		colorStopsBuffer: GPUBuffer;
-	} | null = null;
 
 	public constructor(deps: RibbonRendererDeps) {
 		this.device = deps.device;
@@ -135,26 +129,12 @@ export class RibbonRenderer {
 				ribbonBuf.segmentCount * RIBBON_FLOATS_PER_INSTANCE,
 			),
 		);
-		const meta = uploadSingleStrokeMeta(
-			this.device,
-			this.buffers,
-			input,
-			texture.aspectRatio,
-		);
-		const bindGroup1 = this.device.createBindGroup({
-			label: "Ribbon Bind Group 1",
-			layout: this.strokeMetaBindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: meta.pathMetaBuffer } },
-				{ binding: 1, resource: { buffer: meta.colorStopsBuffer } },
-			],
-		});
 		this.draw(
 			pass,
 			bindings,
 			texture,
 			ribbonBuffer,
-			bindGroup1,
+			uploadSingleStrokeMeta(this.buffers, input, texture.aspectRatio),
 			ribbonBuf.segmentCount,
 		);
 	}
@@ -216,56 +196,15 @@ export class RibbonRenderer {
 			return;
 		}
 
-		const pathMetas = batch.pathMetas.view();
-		const pathMetaBuffer = this.buffers.acquirePathMetaBuffer(
-			pathMetas.byteLength,
-		);
-		this.device.queue.writeBuffer(
-			pathMetaBuffer,
-			0,
-			pathMetas.buffer,
-			pathMetas.byteOffset,
-			pathMetas.byteLength,
-		);
-
-		const colorStops = batch.colorStops.view();
-		const colorStopsBuffer = this.buffers.acquireColorStopsBuffer(
-			Math.max(colorStops.byteLength, COLOR_STOP_FLOATS * 4),
-		);
-		if (colorStops.length > 0) {
-			this.device.queue.writeBuffer(
-				colorStopsBuffer,
-				0,
-				colorStops.buffer,
-				colorStops.byteOffset,
-				colorStops.byteLength,
-			);
-		}
-
-		if (
-			this.cachedBindGroup1?.pathMetaBuffer !== pathMetaBuffer ||
-			this.cachedBindGroup1.colorStopsBuffer !== colorStopsBuffer
-		) {
-			this.cachedBindGroup1 = {
-				bindGroup: this.device.createBindGroup({
-					label: "Ribbon Batch Bind Group 1",
-					layout: this.strokeMetaBindGroupLayout,
-					entries: [
-						{ binding: 0, resource: { buffer: pathMetaBuffer } },
-						{ binding: 1, resource: { buffer: colorStopsBuffer } },
-					],
-				}),
-				pathMetaBuffer,
-				colorStopsBuffer,
-			};
-		}
-
 		this.draw(
 			target.pass,
 			target.bindings,
 			target.texture,
 			this.uploadInstances(batch.instances.view()),
-			this.cachedBindGroup1.bindGroup,
+			this.buffers.uploadStrokeMeta(
+				batch.pathMetas.view(),
+				batch.colorStops.view(),
+			),
 			segmentCount,
 		);
 		this.resetBatch();
@@ -275,7 +214,6 @@ export class RibbonRenderer {
 		this.batch.target = null;
 		this.resetBatch();
 		this.textureViewCache.clear();
-		this.cachedBindGroup1 = null;
 		this.ribbonPipeline?.unitVertexBuffer.destroy();
 		this.ribbonPipeline = null;
 	}
@@ -285,7 +223,7 @@ export class RibbonRenderer {
 		bindings: BrushDrawBindings,
 		texture: ResolvedRibbonTexture,
 		ribbonBuffer: GPUBuffer,
-		bindGroup1: GPUBindGroup,
+		strokeMeta: StrokeMetaSlot,
 		segmentCount: number,
 	): void {
 		const { pipeline, bindGroupLayout, unitVertexBuffer, sampler } =
@@ -303,7 +241,7 @@ export class RibbonRenderer {
 		pass.setPipeline(pipeline);
 		pass.setVertexBuffer(0, unitVertexBuffer);
 		pass.setBindGroup(0, bindGroup0);
-		pass.setBindGroup(1, bindGroup1);
+		pass.setBindGroup(1, strokeMeta.bindGroup, strokeMeta.dynamicOffsets);
 		if (bindings.transformsBindGroup) {
 			pass.setBindGroup(2, bindings.transformsBindGroup);
 		}

@@ -33,7 +33,7 @@ import { hashSideProfile } from "../../../helpers";
 import { RENDER_SAMPLE_COUNT } from "../../CanvasLayerTypes";
 import type { StampCache } from "../../caches/StampCache";
 import { BoundedStampStore } from "./BoundedStampStore";
-import type { BrushFrameBuffers } from "./BrushFrameBuffers";
+import type { BrushFrameBuffers, StrokeMetaSlot } from "./BrushFrameBuffers";
 import type { BrushDrawBindings, StrokeDrawInput } from "./BrushRenderer";
 import {
 	BrushTextureArrayBuilder,
@@ -93,9 +93,9 @@ interface MixedDabStrokeDrawState {
 	bindGroup1: GPUBindGroup;
 	transformsBindGroup: GPUBindGroup | undefined;
 	maskBindGroup: GPUBindGroup;
-	/** Same buffers the mix pass must read to resolve each dab's brush color. */
-	pathMetaBuffer: GPUBuffer;
-	colorStopsBuffer: GPUBuffer;
+	/** Where the mix pass reads the PathMeta and color stops that resolve
+	 *  each dab's brush color. */
+	strokeMeta: StrokeMetaSlot;
 }
 
 /** Texture resolution for a dab stroke: the single brush texture plus
@@ -171,6 +171,17 @@ export class DabRenderer {
 	private blankGrain: { texture: GPUTexture; view: GPUTextureView } | null =
 		null;
 	private grainSampler: GPUSampler | null = null;
+	/** Group 0 of the last plain dab draw of this frame. Strokes drawn back to
+	 *  back from the resident store bind the same resources, so they share it. */
+	private lastBindGroup0: {
+		layout: GPUBindGroupLayout;
+		uniformBuffer: GPUBuffer;
+		dabBuffer: GPUBuffer;
+		textureView: GPUTextureView;
+		sampler: GPUSampler;
+		grainView: GPUTextureView;
+		bindGroup: GPUBindGroup;
+	} | null = null;
 
 	public constructor(deps: DabRendererDeps) {
 		this.device = deps.device;
@@ -206,6 +217,13 @@ export class DabRenderer {
 		this.dabStore.flushPendingReleases();
 		for (const buffer of this.live.retiredBuffers) buffer.destroy();
 		this.live.retiredBuffers.length = 0;
+		this.lastBindGroup0 = null;
+	}
+
+	/** Drop what only this frame's draws needed. Call after every pass of the
+	 *  frame is encoded. */
+	public endFrame(): void {
+		this.lastBindGroup0 = null;
 	}
 
 	/** Draw one dab stroke into an open render pass. */
@@ -315,31 +333,22 @@ export class DabRenderer {
 			}
 		}
 
-		const meta = uploadSingleStrokeMeta(this.device, this.buffers, input);
+		const meta = uploadSingleStrokeMeta(this.buffers, input);
 		const { pipeline, bindGroupLayout } = this.ensureDabPipeline(tipMode);
-		const bindGroup0 = this.device.createBindGroup({
-			label: "Brush Dab Bind Group 0",
-			layout: bindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: bindings.uniformBuffer } },
-				{ binding: 1, resource: { buffer: dabBuffer } },
-				{ binding: 2, resource: textureView },
-				{ binding: 3, resource: sampler },
-				...this.grainBindings(settings),
-			],
-		});
-		const bindGroup1 = this.device.createBindGroup({
-			label: "Brush Dab Bind Group 1",
-			layout: this.strokeMetaBindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: meta.pathMetaBuffer } },
-				{ binding: 1, resource: { buffer: meta.colorStopsBuffer } },
-			],
-		});
 
 		pass.setPipeline(pipeline);
-		pass.setBindGroup(0, bindGroup0);
-		pass.setBindGroup(1, bindGroup1);
+		pass.setBindGroup(
+			0,
+			this.dabBindGroup0(
+				bindGroupLayout,
+				bindings.uniformBuffer,
+				dabBuffer,
+				textureView,
+				sampler,
+				this.grainView(settings),
+			),
+		);
+		pass.setBindGroup(1, meta.bindGroup, meta.dynamicOffsets);
 		if (bindings.transformsBindGroup) {
 			pass.setBindGroup(2, bindings.transformsBindGroup);
 		}
@@ -379,7 +388,7 @@ export class DabRenderer {
 		});
 		if (dabs.count === 0) return;
 		const dabBuffer = this.uploadFrameDabs(dabs.data, dabs.count);
-		const meta = uploadSingleStrokeMeta(this.device, this.buffers, input);
+		const meta = uploadSingleStrokeMeta(this.buffers, input);
 
 		const { pipeline, bindGroupLayout } = this.ensureWetSeedPipeline(
 			tip.tipMode,
@@ -396,26 +405,22 @@ export class DabRenderer {
 					{ binding: 1, resource: { buffer: mixed?.dabBuffer ?? dabBuffer } },
 					{ binding: 2, resource: tip.textureView },
 					{ binding: 3, resource: tip.sampler },
-					...this.grainBindings(settings),
+					...this.grainBindings(this.grainView(settings)),
 				],
 			}),
 		);
-		pass.setBindGroup(
-			1,
-			this.device.createBindGroup({
-				label: "Wet Seed Bind Group 1",
-				layout: mixed
-					? this.ensureMixedStrokeMetaBindGroupLayout()
-					: this.strokeMetaBindGroupLayout,
-				entries: [
-					{ binding: 0, resource: { buffer: meta.pathMetaBuffer } },
-					{ binding: 1, resource: { buffer: meta.colorStopsBuffer } },
-					...(mixed
-						? [{ binding: 2, resource: { buffer: mixed.colors } }]
-						: []),
-				],
-			}),
-		);
+		if (mixed) {
+			pass.setBindGroup(
+				1,
+				this.createMixedStrokeMetaBindGroup(
+					"Wet Seed Bind Group 1 (mixed)",
+					meta,
+					mixed.colors,
+				),
+			);
+		} else {
+			pass.setBindGroup(1, meta.bindGroup, meta.dynamicOffsets);
+		}
 		if (bindings.transformsBindGroup) {
 			pass.setBindGroup(2, bindings.transformsBindGroup);
 		}
@@ -439,7 +444,7 @@ export class DabRenderer {
 			tip.tipMode,
 			true,
 		);
-		const meta = uploadSingleStrokeMeta(this.device, this.buffers, input);
+		const meta = uploadSingleStrokeMeta(this.buffers, input);
 
 		const bindGroup0 = this.device.createBindGroup({
 			label: "Brush Dab Bind Group 0 (mixed)",
@@ -449,26 +454,21 @@ export class DabRenderer {
 				{ binding: 1, resource: { buffer: mixed.dabBuffer } },
 				{ binding: 2, resource: tip.textureView },
 				{ binding: 3, resource: tip.sampler },
-				...this.grainBindings(input.settings),
+				...this.grainBindings(this.grainView(input.settings)),
 			],
 		});
-		const bindGroup1 = this.device.createBindGroup({
-			label: "Brush Dab Bind Group 1 (mixed)",
-			layout: this.ensureMixedStrokeMetaBindGroupLayout(),
-			entries: [
-				{ binding: 0, resource: { buffer: meta.pathMetaBuffer } },
-				{ binding: 1, resource: { buffer: meta.colorStopsBuffer } },
-				{ binding: 2, resource: { buffer: mixed.colors } },
-			],
-		});
+		const bindGroup1 = this.createMixedStrokeMetaBindGroup(
+			"Brush Dab Bind Group 1 (mixed)",
+			meta,
+			mixed.colors,
+		);
 		return {
 			pipeline,
 			bindGroup0,
 			bindGroup1,
 			transformsBindGroup: bindings.transformsBindGroup,
 			maskBindGroup: bindings.maskBindGroup,
-			pathMetaBuffer: meta.pathMetaBuffer,
-			colorStopsBuffer: meta.colorStopsBuffer,
+			strokeMeta: meta,
 		};
 	}
 
@@ -512,6 +512,7 @@ export class DabRenderer {
 		this.blankGrain?.texture.destroy();
 		this.blankGrain = null;
 		this.grainSampler = null;
+		this.lastBindGroup0 = null;
 	}
 
 	/** Upload evaluated dabs into a frame-pooled instance buffer. */
@@ -624,12 +625,7 @@ export class DabRenderer {
 			const uid = this.resolveTextureUid(setup.effectiveTextureFileUid);
 			const texture = this.textureManager.getTexture(uid);
 			if (!texture) return null;
-			let view = this.textureViewCache.get(texture);
-			if (!view) {
-				view = texture.createView();
-				this.textureViewCache.set(texture, view);
-			}
-			textureView = view;
+			textureView = this.textureViewOf(texture);
 		}
 		return {
 			tipMode,
@@ -863,6 +859,79 @@ export class DabRenderer {
 		});
 	}
 
+	/** Group 0 of a plain dab draw. Returns the previous draw's bind group
+	 *  when this draw binds the same resources. */
+	private dabBindGroup0(
+		layout: GPUBindGroupLayout,
+		uniformBuffer: GPUBuffer,
+		dabBuffer: GPUBuffer,
+		textureView: GPUTextureView,
+		sampler: GPUSampler,
+		grainView: GPUTextureView,
+	): GPUBindGroup {
+		const last = this.lastBindGroup0;
+		if (
+			last?.layout === layout &&
+			last.uniformBuffer === uniformBuffer &&
+			last.dabBuffer === dabBuffer &&
+			last.textureView === textureView &&
+			last.sampler === sampler &&
+			last.grainView === grainView
+		) {
+			return last.bindGroup;
+		}
+		const bindGroup = this.device.createBindGroup({
+			label: "Brush Dab Bind Group 0",
+			layout,
+			entries: [
+				{ binding: 0, resource: { buffer: uniformBuffer } },
+				{ binding: 1, resource: { buffer: dabBuffer } },
+				{ binding: 2, resource: textureView },
+				{ binding: 3, resource: sampler },
+				...this.grainBindings(grainView),
+			],
+		});
+		this.lastBindGroup0 = {
+			layout,
+			uniformBuffer,
+			dabBuffer,
+			textureView,
+			sampler,
+			grainView,
+			bindGroup,
+		};
+		return bindGroup;
+	}
+
+	/** Group(1) of the mixing route for one stroke. */
+	private createMixedStrokeMetaBindGroup(
+		label: string,
+		meta: StrokeMetaSlot,
+		mixedColors: GPUBuffer,
+	): GPUBindGroup {
+		return this.device.createBindGroup({
+			label,
+			layout: this.ensureMixedStrokeMetaBindGroupLayout(),
+			entries: [
+				{
+					binding: 0,
+					resource: {
+						buffer: meta.pathMetaBuffer,
+						offset: meta.pathMetaOffset,
+					},
+				},
+				{
+					binding: 1,
+					resource: {
+						buffer: meta.colorStopsBuffer,
+						offset: meta.colorStopsOffset,
+					},
+				},
+				{ binding: 2, resource: { buffer: mixedColors } },
+			],
+		});
+	}
+
 	/** Group(1) layout of the mixing route: pathMetas + colorStops + the
 	 *  per-dab resolved colors from the chunked mix pass. */
 	private ensureMixedStrokeMetaBindGroupLayout(): GPUBindGroupLayout {
@@ -889,23 +958,35 @@ export class DabRenderer {
 		return this.mixedStrokeMetaBindGroupLayout;
 	}
 
-	/** Grain texture + sampler entries for a dab bind group. Falls back to a
-	 *  1x1 white texture, which leaves every grain mode a no-op. */
-	private grainBindings(settings: BrushSettings): GPUBindGroupEntry[] {
-		const grain = settings.grain;
-		let view: GPUTextureView | null = null;
-		if (grain) {
-			const uid =
-				grain.source.kind === "file"
-					? grain.source.fileUid
-					: this.textureManager.resolveDefTextureUid(grain.source.defId);
-			const texture = uid != null ? this.textureManager.getTexture(uid) : null;
-			if (texture) view = texture.createView();
-		}
+	/** Grain texture + sampler entries for a dab bind group. */
+	private grainBindings(view: GPUTextureView): GPUBindGroupEntry[] {
 		return [
-			{ binding: 4, resource: view ?? this.ensureBlankGrainView() },
+			{ binding: 4, resource: view },
 			{ binding: 5, resource: this.ensureGrainSampler() },
 		];
+	}
+
+	/** View of the brush's grain texture. Falls back to a 1x1 white texture,
+	 *  which leaves every grain mode a no-op. */
+	private grainView(settings: BrushSettings): GPUTextureView {
+		const grain = settings.grain;
+		if (!grain) return this.ensureBlankGrainView();
+		const uid =
+			grain.source.kind === "file"
+				? grain.source.fileUid
+				: this.textureManager.resolveDefTextureUid(grain.source.defId);
+		const texture = uid != null ? this.textureManager.getTexture(uid) : null;
+		return texture ? this.textureViewOf(texture) : this.ensureBlankGrainView();
+	}
+
+	/** The default view of a texture, created once per texture. */
+	private textureViewOf(texture: GPUTexture): GPUTextureView {
+		let view = this.textureViewCache.get(texture);
+		if (!view) {
+			view = texture.createView();
+			this.textureViewCache.set(texture, view);
+		}
+		return view;
 	}
 
 	private ensureBlankGrainView(): GPUTextureView {

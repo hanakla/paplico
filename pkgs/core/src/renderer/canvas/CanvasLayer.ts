@@ -640,6 +640,10 @@ export class CanvasLayer {
 	private dotGridUniformView: StructuredView | null = null;
 	private dotGridBindGroup: GPUBindGroup | null = null;
 
+	/** Vertex buffer of the artboard backgrounds. Lives across frames and is
+	 *  replaced only when the artboards need more room than it has. */
+	private artboardBackgroundsVertexBuffer: GPUBuffer | null = null;
+
 	// -- Caches --
 	private cache: DocumentCache;
 	private texturePool!: TexturePool;
@@ -8841,11 +8845,18 @@ export class CanvasLayer {
 		if (buf.length === 0) return;
 
 		const vertexData = buf.toFloat32Array();
-		const vertexBuffer = this.device.createBuffer({
-			label: "Artboard Backgrounds Vertex Buffer",
-			size: vertexData.byteLength,
-			usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-		});
+		if (
+			!this.artboardBackgroundsVertexBuffer ||
+			this.artboardBackgroundsVertexBuffer.size < vertexData.byteLength
+		) {
+			this.artboardBackgroundsVertexBuffer?.destroy();
+			this.artboardBackgroundsVertexBuffer = this.device.createBuffer({
+				label: "Artboard Backgrounds Vertex Buffer",
+				size: vertexData.byteLength,
+				usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+			});
+		}
+		const vertexBuffer = this.artboardBackgroundsVertexBuffer;
 
 		this.device.queue.writeBuffer(
 			vertexBuffer,
@@ -9589,6 +9600,8 @@ export class CanvasLayer {
 		this.stripFrame.destroy();
 		for (const buf of this.backdropBlitPool.buffers) buf.destroy();
 		this.backdropBlitPool.buffers.length = 0;
+		this.artboardBackgroundsVertexBuffer?.destroy();
+		this.artboardBackgroundsVertexBuffer = null;
 
 		// Cleanup texture cache
 		for (const texture of this.assetState.textureCache.values()) {

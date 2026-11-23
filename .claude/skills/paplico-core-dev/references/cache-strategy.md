@@ -136,14 +136,21 @@ Sources: `renderer/canvas/pipeline/{TexturePool,ClipMaskAtlas,ViewportManager,Un
 - `BrushTextureArrayBuilder` caches `texture_2d_array` resources by the sorted,
   deduplicated brush UID set joined with `|`. Source texture revision is not in
   the key. The builder owns all arrays until `destroy()`.
-- `BrushFrameBuffers` pools instance/path-meta/color-stop GPU buffers by frame
-  slot. `BrushRenderer.beginFrame` rewinds them. A slot's buffer grows when
+- `BrushFrameBuffers` pools instance GPU buffers by frame slot.
+  `BrushRenderer.beginFrame` rewinds them. A slot's buffer grows when
   the need exceeds it and is replaced by a smaller one when the need drops
-  two power-of-two steps. `RibbonRenderer` keeps its batch CPU arrays as
-  grow-only `FloatArena`s, caches texture views by UID and keeps the previous
-  group(1) bind group.
-  `DabRenderer` caches views by UID and owns the falloff LUT, the blank grain
-  texture and the array builder. `BrushRenderer.destroy()` frees all of it.
+  two power-of-two steps. The PathMetas and ColorStops of a frame's draws
+  share stroke meta pages. A page owns two storage buffers and one group(1)
+  bind group, and a draw addresses its slice with dynamic offsets. Pages are
+  rewound by `beginFrame` and are never dropped while the renderer lives. A
+  ribbon batch larger than a page's window gets a page of its own size.
+  `RibbonRenderer` keeps its batch CPU arrays as grow-only `FloatArena`s and
+  caches texture views by UID.
+  `DabRenderer` caches views by texture and owns the falloff LUT, the blank
+  grain texture and the array builder. It keeps the group(0) bind group of
+  the previous draw and reuses it while the next draw binds the same
+  resources; `beginFrame`, `endFrame` and `destroy` drop it.
+  `BrushRenderer.destroy()` frees all of it.
 - `WetLayerPass` keeps its ping-pong field textures grow-only. It retires the
   frame's uniform buffers and field textures one frame late, in
   `WetStrokeRenderer.releaseFrame`, which `BrushRenderer.endFrame` calls from

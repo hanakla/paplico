@@ -91,8 +91,8 @@ export class BrushRenderer {
 			maskBindGroupLayout,
 		} = deps;
 		this.textures = textures;
-		this.buffers = new BrushFrameBuffers(device);
 		const strokeMetaBindGroupLayout = createStrokeMetaBindGroupLayout(device);
+		this.buffers = new BrushFrameBuffers(device, strokeMetaBindGroupLayout);
 		this.dabs = new DabRenderer({
 			device,
 			canvasFormat,
@@ -130,10 +130,11 @@ export class BrushRenderer {
 		this.dabs.beginFrame();
 	}
 
-	/** Retire the GPU resources this frame's wet simulations referenced.
-	 *  Call after every pass of the frame is encoded, before the submit. */
+	/** Retire the GPU resources only this frame's draws referenced. Call
+	 *  after every pass of the frame is encoded, before the submit. */
 	public endFrame(): void {
 		this.wet.releaseFrame();
+		this.dabs.endFrame();
 	}
 
 	/** Draw one stroke immediately, on the route its engine names. */
@@ -158,7 +159,8 @@ export class BrushRenderer {
 	}
 }
 
-/** Bind group layout 1 of every brush pipeline: PathMetas + ColorStops. */
+/** Bind group layout 1 of every brush pipeline: PathMetas + ColorStops. Both
+ *  take a dynamic offset, so one bind group serves every draw of a page. */
 function createStrokeMetaBindGroupLayout(
 	device: GPUDevice,
 ): GPUBindGroupLayout {
@@ -168,12 +170,12 @@ function createStrokeMetaBindGroupLayout(
 			{
 				binding: 0,
 				visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-				buffer: { type: "read-only-storage" },
+				buffer: { type: "read-only-storage", hasDynamicOffset: true },
 			},
 			{
 				binding: 1,
 				visibility: GPUShaderStage.FRAGMENT,
-				buffer: { type: "read-only-storage" },
+				buffer: { type: "read-only-storage", hasDynamicOffset: true },
 			},
 		],
 	});

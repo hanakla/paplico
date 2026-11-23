@@ -436,9 +436,10 @@ path; pattern brushes repeat with optional gaps.
 | Mixing results | the above + visible rect + backdrop content key | `MixStrokeRenderer` |
 | Tip falloff LUT data | hardness quantized to 32 layers | `TipMaskBuilder` |
 | Tip falloff LUT GPU texture | one per DabRenderer | `DabRenderer` |
-| Frame GPU buffer pools: instances, PathMeta, ColorStops | frame slot | `BrushFrameBuffers`, rewound by `BrushRenderer.beginFrame` |
+| Frame GPU instance buffer pool | frame slot | `BrushFrameBuffers`, rewound by `BrushRenderer.beginFrame` |
+| Stroke meta pages: PathMeta and ColorStops of many draws, with one group(1) bind group per page | page index; a draw addresses its slice with dynamic offsets | `BrushFrameBuffers`, rewound by `BrushRenderer.beginFrame` |
+| Dab group(0) bind group of the previous draw | identity of the uniform buffer, instance buffer, tip view, sampler and grain view | `DabRenderer`, dropped by `beginFrame`, `endFrame` and `destroy` |
 | Ribbon batch CPU arrays | grow-only `FloatArena`, rewound per flush | `RibbonRenderer` |
-| Ribbon batch group(1) bind group | pooled buffer identity | `RibbonRenderer` |
 
 Committed strokes re-upload but never re-evaluate; pans and zooms hit the caches.
 A live preview deliberately bypasses them (its geometry hash changes on every

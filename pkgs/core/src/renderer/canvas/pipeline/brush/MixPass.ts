@@ -28,8 +28,10 @@ type MixChunkArgs = {
 	strokeBounds?: BoundingBox;
 	/** PathMeta buffer of the stroke (color / gradient mode / transform index). */
 	pathMetas: GPUBuffer;
+	pathMetasOffsetBytes?: number;
 	/** Gradient color stops referenced by the PathMeta. */
 	colorStops: GPUBuffer;
+	colorStopsOffsetBytes?: number;
 	/** Element transforms buffer, indexed by PathMeta.transformIndex. */
 	transforms: GPUBuffer;
 	/** Footprint radius as a ratio of the dab radius (MixingConfig.sampleRadius). */
@@ -257,8 +259,20 @@ export class MixPass {
 						size: args.dabCount * 16,
 					},
 				},
-				{ binding: 10, resource: { buffer: args.pathMetas } },
-				{ binding: 11, resource: { buffer: args.colorStops } },
+				{
+					binding: 10,
+					resource: {
+						buffer: args.pathMetas,
+						offset: args.pathMetasOffsetBytes ?? 0,
+					},
+				},
+				{
+					binding: 11,
+					resource: {
+						buffer: args.colorStops,
+						offset: args.colorStopsOffsetBytes ?? 0,
+					},
+				},
 				{ binding: 12, resource: { buffer: args.transforms } },
 			],
 		});
