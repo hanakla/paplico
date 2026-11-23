@@ -218,6 +218,19 @@ class Intersecter {
 	}
 
 	private divideEvent(ev: EventBool, t: number, p: Vec2) {
+		// The cut point comes from the other segment, so rounding can put it at
+		// or past this one's end in sweep order, or at or before its start.
+		// Cutting there would leave a piece running backwards: the segment
+		// ends at the cut instead, or stays whole.
+		if (this.geo.compareVec2(p, ev.other.p) >= 0) {
+			this.events.remove(ev.other);
+			ev.seg.data.setEnd(p);
+			ev.other.p = p;
+			this.addEvent(ev.other);
+			return;
+		}
+		if (this.geo.compareVec2(ev.seg.data.start(), p) >= 0) return;
+
 		const [left, right] = ev.seg.data.split([t]) as [Segment, Segment];
 
 		// set the *exact* intersection point
@@ -250,7 +263,7 @@ class Intersecter {
 		ev.seg.data = left;
 		ev.other.p = p;
 		this.addEvent(ev.other);
-		return this.addSegment(ns, ev.primary);
+		this.addSegment(ns, ev.primary);
 	}
 
 	public beginPath() {
@@ -426,6 +439,14 @@ class Intersecter {
 				tEnd: [tA2, tB2],
 			} = i;
 
+			// A range of no length on either segment is a single shared point.
+			// The overlap cases below would cut a segment at that point's far
+			// end and leave a piece running backwards.
+			if (tA1 === tA2 || tB1 === tB2) {
+				this.divideAtPoint(ev1, ev2, tA1, tB1);
+				return null;
+			}
+
 			if (
 				(tA1 === 1 && tA2 === 1 && tB1 === 0 && tB2 === 0) ||
 				(tA1 === 0 && tA2 === 0 && tB1 === 1 && tB2 === 1)
@@ -494,30 +515,41 @@ class Intersecter {
 				minPair = i.tValuePairs[j];
 			}
 			const [tA, tB] = minPair;
-
-			// even though *in theory* seg1.data.point(tA) === seg2.data.point(tB), that isn't exactly
-			// correct in practice because intersections aren't exact... so we need to calculate a single
-			// intersection point that everyone can share
-			const p =
-				tB === 0
-					? seg2.data.start()
-					: tB === 1
-						? seg2.data.end()
-						: tA === 0
-							? seg1.data.start()
-							: tA === 1
-								? seg1.data.end()
-								: seg1.data.point(tA);
-
-			if (this.dividesInside(seg1.data, tA, p)) {
-				this.divideEvent(ev1, tA, p);
-			}
-			if (this.dividesInside(seg2.data, tB, p)) {
-				this.divideEvent(ev2, tB, p);
-			}
+			this.divideAtPoint(ev1, ev2, tA, tB);
 			return null;
 		}
 		throw new Error("PolyBool: Unknown intersection type");
+	}
+
+	/** Cuts both segments where they meet at `tA` on the first and `tB` on the second. */
+	private divideAtPoint(
+		ev1: EventBool,
+		ev2: EventBool,
+		tA: number,
+		tB: number,
+	) {
+		const seg1 = ev1.seg.data;
+		const seg2 = ev2.seg.data;
+		// even though *in theory* seg1.point(tA) === seg2.point(tB), that isn't exactly
+		// correct in practice because intersections aren't exact... so we need to calculate a single
+		// intersection point that everyone can share
+		const p =
+			tB === 0
+				? seg2.start()
+				: tB === 1
+					? seg2.end()
+					: tA === 0
+						? seg1.start()
+						: tA === 1
+							? seg1.end()
+							: seg1.point(tA);
+
+		if (this.dividesInside(seg1, tA, p)) {
+			this.divideEvent(ev1, tA, p);
+		}
+		if (this.dividesInside(seg2, tB, p)) {
+			this.divideEvent(ev2, tB, p);
+		}
 	}
 
 	public calculate() {

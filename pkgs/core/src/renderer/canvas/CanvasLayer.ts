@@ -8652,13 +8652,24 @@ export class CanvasLayer {
 				isGeometryFilter(sf, this.filterRenderer),
 			);
 
+			// The promoted pre sub-filters leave the appearance, or the path's
+			// appearance passes would deform the geometry with them again.
 			const tempPath: Path = {
 				type: "path",
 				id: `${groupId}:group-app:${app.uid}:${paramHash}`,
 				opacity: 1,
 				blendMode: "normal",
 				segments: combinedSegments,
-				filters: [...preFilters, ...preSubFilters, app],
+				filters: [
+					...preFilters,
+					...preSubFilters,
+					{
+						...app,
+						subFilters: app.subFilters?.filter(
+							(sf) => !preSubFilters.includes(sf),
+						),
+					},
+				],
 				transform: createIdentityTransform(),
 			};
 

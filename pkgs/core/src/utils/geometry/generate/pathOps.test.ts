@@ -15,6 +15,7 @@ import type {
 import clipCompoundUnionPaths from "../../../testUtils/fixtures/clipCompoundUnionPaths.json";
 import zeroHandleUnionPaths from "../../../testUtils/fixtures/zeroHandleUnionPaths.json";
 import { createFilledRect, KAPPA } from "../../../testUtils/segmentFactory";
+import { calculateSegmentListBounds } from "../measure/pathBounds";
 import { evalCubicBezier } from "../primitives/bezier";
 import { resolveSegment } from "../primitives/segment";
 import { toWorldPath } from "../space/worldSegments";
@@ -639,6 +640,71 @@ describe("triangleSoupOutline", () => {
 				expect(Math.hypot(p.x, p.y)).toBeCloseTo(50, 0);
 			}
 		}
+	});
+
+	it("should merge triangles whose union meets a cut no longer than a point", () => {
+		// Three triangles of a scribble's stroke. Their union cuts an edge so
+		// short that it meets the next one at a single shared point.
+		const triangles = [
+			6.242411746542833, 3.374369682796807, 7.212556568385782, 4.08652247668029,
+			6.541597071093083, 5.00055088119619, 7.210830018213199,
+			4.0852600754269774, 6.5433236212656665, 5.001813282449503,
+			7.008742765970386, 3.938084185822227, 6.8770768197394325,
+			4.54353667893824, 6.541597071093083, 5.00055088119619, 7.210830018213199,
+			4.0852600754269774,
+		];
+
+		const outline = triangleSoupOutline(triangles, 0.1);
+
+		expect(outline.filter((seg) => seg.isMoved)).toHaveLength(1);
+	});
+
+	it("should unite triangles that leave two nearly overlapping short edges", () => {
+		// Four triangles of a scribble's stroke. Their union leaves two short,
+		// nearly upright edges from one point whose ends differ by a rounding
+		// error, so the end of one lies just past the end of the other.
+		const triangles = [
+			-1.3184289709111008, 4.055922269774234, -2.5088355108294023,
+			4.376316660615189, -2.803523098509686, 3.281422237880135,
+			-2.489830477446276, 4.3708442738463065, -2.8225281318928124,
+			3.2868946246490176, -2.2508346346545136, 4.297489061841602,
+			-2.8225281318928124, 3.2868946246490176, -2.58353228910105,
+			3.213539412644313, -2.2508346346545136, 4.297489061841602,
+			-2.656179304669544, 3.8288694492476623, -2.803523098509686,
+			3.281422237880135, -2.489830477446276, 4.3708442738463065,
+		];
+
+		const outline = triangleSoupOutline(triangles, 0.1);
+
+		const bounds = calculateSegmentListBounds(outline);
+		expect(outline.filter((seg) => seg.isMoved)).toHaveLength(1);
+		expect(bounds?.minX).toBeCloseTo(-2.823, 2);
+		expect(bounds?.maxX).toBeCloseTo(-1.318, 2);
+		expect(bounds?.minY).toBeCloseTo(3.214, 2);
+		expect(bounds?.maxY).toBeCloseTo(4.376, 2);
+	});
+
+	it("should keep two crossing strokes whose join fans sit on their body edges", () => {
+		// Two pieces of a scribble's stroke, each a body quad and a join fan
+		// whose corner lies on the quad's end edge. The other piece crosses both.
+		const triangles = [
+			1333.373125, -1548.006125, 1334.4386875, -1547.618625, 1334.4321875,
+			-1547.6006875, 1333.373125, -1548.006125, 1334.4321875, -1547.6006875,
+			1333.366625, -1547.98825, 1333.373125, -1548.006125, 1333.9059375,
+			-1547.812375, 1333.5966875, -1547.33725, 1333.4093125, -1548.0794375,
+			1334.3895, -1547.5095, 1334.364875, -1547.467125, 1333.4093125,
+			-1548.0794375, 1334.364875, -1547.467125, 1333.384625, -1548.0370625,
+			1333.4093125, -1548.0794375, 1333.8994375, -1547.7945, 1333.366625,
+			-1547.98825,
+		];
+
+		const outline = triangleSoupOutline(triangles, 0.00625);
+
+		const bounds = calculateSegmentListBounds(outline);
+		expect(bounds?.minX).toBeCloseTo(1333.3666, 3);
+		expect(bounds?.maxX).toBeCloseTo(1334.4387, 3);
+		expect(bounds?.minY).toBeCloseTo(-1548.0794, 3);
+		expect(bounds?.maxY).toBeCloseTo(-1547.3373, 3);
 	});
 
 	it("should return nothing when every triangle is degenerate", () => {

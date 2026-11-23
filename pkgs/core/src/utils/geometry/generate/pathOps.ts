@@ -122,11 +122,7 @@ export function triangleSoupOutline(
 	triangles: readonly number[],
 	tolerance: number,
 ): CubicBezierSegment[] {
-	// Shared edges only cancel when their vertices are exact, so vertices
-	// snap to a grid well below the tolerance.
-	const grid = tolerance / 100;
-	const snap = (v: number) => Math.round(v / grid) * grid;
-	const rings = meshBoundaryRings(triangles, snap);
+	const rings = meshBoundaryRings(triangles, tolerance / 100);
 	if (rings.length === 0) return [];
 
 	const geo = new GeometryEpsilon();
@@ -177,13 +173,24 @@ export function triangleSoupOutline(
  * counter-clockwise, so an edge two triangles share appears once in each
  * direction and cancels; the directed edges left chain into rings, an outer
  * boundary running counter-clockwise and an enclosed gap clockwise.
+ * Shared edges only cancel when their vertices are exact, so vertices snap to
+ * a `grid` well below the tolerance.
  */
-function meshBoundaryRings(
-	triangles: readonly number[],
-	snap: (v: number) => number,
-): Ring[] {
+function meshBoundaryRings(triangles: readonly number[], grid: number): Ring[] {
+	const snap = (v: number) => Math.round(v / grid) * grid;
 	const key = (c: Coord) => `${c[0]},${c[1]}`;
-	const edges = new Map<string, { from: Coord; to: Coord }>();
+	// Overlapping triangles can leave the same directed edge twice, so each
+	// key holds every copy and one reverse edge cancels one copy.
+	const edges = new Map<string, BoundaryEdge[]>();
+	const add = (from: Coord, to: Coord) => {
+		const reverse = edges.get(`${key(to)}|${key(from)}`);
+		if (reverse?.length) {
+			reverse.pop();
+			return;
+		}
+		const k = `${key(from)}|${key(to)}`;
+		edges.set(k, [...(edges.get(k) ?? []), { from, to }]);
+	};
 	for (let i = 0; i + 5 < triangles.length; i += 6) {
 		const ring: Coord[] = [];
 		for (let k = i; k < i + 6; k += 2) {
@@ -193,22 +200,27 @@ function meshBoundaryRings(
 		const area2 = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
 		if (area2 === 0) continue;
 		const wound = area2 > 0 ? ring : ring.reverse();
-		for (let k = 0; k < 3; k++) {
-			const from = wound[k];
-			const to = wound[(k + 1) % 3];
-			if (edges.delete(`${key(to)}|${key(from)}`)) continue;
-			edges.set(`${key(from)}|${key(to)}`, { from, to });
-		}
+		for (let k = 0; k < 3; k++) add(wound[k], wound[(k + 1) % 3]);
 	}
+	// A triangle whose corner lies on another's edge, like a join fan centred
+	// on the end edge of a body quad, leaves that edge and its own edge along
+	// it uncancelled. The two make a slit of no width, which the union cannot
+	// tell from an overlap. Cut at such corners so the halves cancel.
+	const uncancelled = [...edges.values()].flat();
+	edges.clear();
+	for (const edge of splitAtCorners(uncancelled, grid)) {
+		add(edge.from, edge.to);
+	}
+	const boundary = [...edges.values()].flat();
 
-	const outgoing = new Map<string, { from: Coord; to: Coord }[]>();
-	for (const edge of edges.values()) {
+	const outgoing = new Map<string, BoundaryEdge[]>();
+	for (const edge of boundary) {
 		const k = key(edge.from);
 		outgoing.set(k, [...(outgoing.get(k) ?? []), edge]);
 	}
 	const rings: Ring[] = [];
-	const used = new Set<{ from: Coord; to: Coord }>();
-	for (const start of edges.values()) {
+	const used = new Set<BoundaryEdge>();
+	for (const start of boundary) {
 		if (used.has(start)) continue;
 		const ring: Ring = [start.from];
 		let edge = start;
@@ -222,6 +234,67 @@ function meshBoundaryRings(
 		if (ring.length >= 4) rings.push(ring);
 	}
 	return rings;
+}
+
+interface BoundaryEdge {
+	from: Coord;
+	to: Coord;
+}
+
+/**
+ * `edges` with each one cut at the ends of the others that lie on it: within
+ * `grid` of its line and more than `grid` from its own ends.
+ */
+function splitAtCorners(edges: BoundaryEdge[], grid: number): BoundaryEdge[] {
+	const lengthOf = (e: BoundaryEdge) =>
+		Math.hypot(e.to[0] - e.from[0], e.to[1] - e.from[1]);
+	// Cells as large as the average edge keep each lookup to a few cells.
+	const cell = Math.max(
+		grid,
+		edges.reduce((sum, e) => sum + lengthOf(e), 0) / Math.max(edges.length, 1),
+	);
+	const cellOf = (v: number) => Math.floor(v / cell);
+	const corners = new Map<string, Coord[]>();
+	for (const corner of edges.flatMap((e) => [e.from, e.to])) {
+		const k = `${cellOf(corner[0])},${cellOf(corner[1])}`;
+		corners.set(k, [...(corners.get(k) ?? []), corner]);
+	}
+	return edges.flatMap((edge) => {
+		const [x0, y0] = edge.from;
+		const [x1, y1] = edge.to;
+		const length = lengthOf(edge);
+		if (length <= grid) return [edge];
+		const cuts = new Map<string, { along: number; at: Coord }>();
+		for (
+			let cx = cellOf(Math.min(x0, x1));
+			cx <= cellOf(Math.max(x0, x1));
+			cx++
+		) {
+			for (
+				let cy = cellOf(Math.min(y0, y1));
+				cy <= cellOf(Math.max(y0, y1));
+				cy++
+			) {
+				for (const at of corners.get(`${cx},${cy}`) ?? []) {
+					const along =
+						((at[0] - x0) * (x1 - x0) + (at[1] - y0) * (y1 - y0)) / length;
+					const off =
+						Math.abs((at[0] - x0) * (y1 - y0) - (at[1] - y0) * (x1 - x0)) /
+						length;
+					if (along > grid && along < length - grid && off <= grid) {
+						cuts.set(`${at[0]},${at[1]}`, { along, at });
+					}
+				}
+			}
+		}
+		if (cuts.size === 0) return [edge];
+		const points = [
+			edge.from,
+			...[...cuts.values()].sort((a, b) => a.along - b.along).map((c) => c.at),
+			edge.to,
+		];
+		return points.slice(1).map((to, i) => ({ from: points[i], to }));
+	});
 }
 
 /**

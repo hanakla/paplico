@@ -51,7 +51,11 @@
   - Fix kerning, character size and alignment changes made while editing not being saved until the edit ends. Undo takes back each change and keeps the caret in place.
   - Fix the selected text staying in place until an IME composition is confirmed.
   - Fix a new text ignoring the font, size, alignment and writing mode chosen after the text tool was picked.
+- **Geometry**
+  - Fix outlining a stroke or uniting shapes failing with "Zero-length segment detected" when very short edges meet. Two edges that share only a point are cut there instead of treated as lying on each other, and a cut that rounding puts at or past an edge's end ends the edge there instead of leaving a piece that runs backwards.
+  - Fix outlining a stroke dropping most of it where a round join's corner sits on the edge of the next piece. The edge is now cut at that corner, so the two pieces join instead of leaving a slit of no width between them.
 - **Elements**
+  - Fix a group's own fill or stroke applying its shape filters, such as a path offset, twice.
   - Fix a group's own fill and stroke following hidden children and the parts of clip groups their clip paths hide.
   - Fix ungroup doing nothing on a group inside the group being edited.
 
