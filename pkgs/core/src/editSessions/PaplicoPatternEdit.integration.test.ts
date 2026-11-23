@@ -4,6 +4,7 @@ import {
 	YjsProvider,
 	type YjsProviderCallbacks,
 } from "../collaboration/YjsProvider";
+import type { EditingScope } from "../document/editingScope";
 import { createIdentityTransform } from "../document/factory";
 import type { RendererState } from "../renderer/types";
 import type { DefEntry, Path } from "../schema";
@@ -212,7 +213,7 @@ function setup() {
 
 	store = {
 		currentLayerId: null,
-		editingScopeStack: [] as string[],
+		editingScopeStack: [] as EditingScope[],
 		selectedElementIds: [] as string[],
 		selectionBounds: null,
 		document: extractDocumentFromYDoc(provider.ydoc),

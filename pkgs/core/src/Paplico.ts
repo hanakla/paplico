@@ -2819,6 +2819,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					.flatMap((layer) =>
 						this.spatialIndex.findPaintedElementsAtPoint(layer.id, x, y),
 					),
+			findRepeatInstanceAtPoint: (repeatId, x, y, tolerance) =>
+				this.spatialIndex.findRepeatInstanceAtPoint(repeatId, x, y, tolerance),
 			findElementsInRect: (minX, minY, maxX, maxY) => {
 				const layers = this.rendererStore.document.layers;
 				const results: AnyArtObject[] = [];
@@ -2836,11 +2838,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				}
 				return results;
 			},
-			enterEditingScope: (elementId) =>
-				this.selection.enterEditingScope(elementId),
+			enterEditingScope: (elementId, instanceIndex) =>
+				this.selection.enterEditingScope(elementId, instanceIndex),
 			exitEditingScopeOneLevel: () => void this.exitEditingScopeOneLevel(),
 			getEditingScopeId: () =>
-				this.rendererStore.editingScopeStack.at(-1) ?? null,
+				this.rendererStore.editingScopeStack.at(-1)?.id ?? null,
 			isElementEditable: (elementId) =>
 				this.selection.isElementEditable(elementId),
 			isElementLocked: (elementId) =>
@@ -2854,7 +2856,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					(l) => l.id === layerId,
 				);
 				if (layer?.locked) return true;
-				const editingScopeId = this.rendererStore.editingScopeStack.at(-1);
+				const editingScopeId = this.rendererStore.editingScopeStack.at(-1)?.id;
 				if (editingScopeId && this.spatialIndex.isElementLocked(editingScopeId))
 					return true;
 				return false;
@@ -3031,7 +3033,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getAllEditablePaths: () =>
 				collectEditablePaths(
 					this.rendererStore.document,
-					this.rendererStore.editingScopeStack.at(-1) ?? null,
+					this.rendererStore.editingScopeStack.at(-1)?.id ?? null,
 				),
 			isPointInsideAncestorClips: (elementId, x, y) =>
 				this.spatialIndex.isPointInsideAncestorClips(elementId, x, y),

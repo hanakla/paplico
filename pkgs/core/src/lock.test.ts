@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { YjsProvider } from "./collaboration/YjsProvider";
+import type { EditingScope } from "./document/editingScope";
 import { findGuideOwner } from "./document/elementGeometry/guideOutlines";
 import type { SpatialIndex } from "./document/SpatialIndex";
 import { PaplicoCommands } from "./PaplicoCommands";
@@ -452,7 +453,7 @@ function createCommands(
 	options?: {
 		parentGroupMap?: Map<string, string>;
 		currentLayerId?: string;
-		editingScopeStack?: string[];
+		editingScopeStack?: EditingScope[];
 	},
 ) {
 	const yjsProvider = {

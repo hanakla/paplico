@@ -126,7 +126,7 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 	});
 
 	it("groups inside the editing scope preserving childIds stacking order", () => {
-		store.editingScopeStack = ["parent-group"];
+		store.editingScopeStack = [{ kind: "element", id: "parent-group" }];
 
 		// Selection order scrambled vs. the parent's childIds order (c0, c1, c2).
 		const groupId = commands.groupSelectedElements(["c2", "c0"]);
@@ -143,7 +143,7 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 	});
 
 	it("groups selected elements inside a layer editing scope", () => {
-		store.editingScopeStack = ["layer-0"];
+		store.editingScopeStack = [{ kind: "layer", id: "layer-0" }];
 
 		const groupId = commands.groupSelectedElements(["a1", "a0"]);
 
@@ -158,7 +158,7 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 	});
 
 	it("groups selected elements inside a layer editing scope", () => {
-		store.editingScopeStack = ["layer-0"];
+		store.editingScopeStack = [{ kind: "layer", id: "layer-0" }];
 
 		const groupId = commands.groupSelectedElements(["a1", "a0"]);
 
@@ -173,7 +173,7 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 	});
 
 	it("returns null in an editing scope when fewer than two selected elements are scope children", () => {
-		store.editingScopeStack = ["parent-group"];
+		store.editingScopeStack = [{ kind: "element", id: "parent-group" }];
 
 		// a0 lives at the layer root, not in the editing scope's childIds.
 		expect(commands.groupSelectedElements(["c0", "a0"])).toBeNull();

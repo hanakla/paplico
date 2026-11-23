@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { YjsProvider } from "../collaboration/YjsProvider";
+import type { EditingScope } from "../document/editingScope";
 import { createIdentityTransform } from "../document/factory";
 import type { RendererState } from "../renderer/types";
 import type { RectPrimitive, UIOverlay } from "../renderer/ui/primitives";
@@ -77,7 +78,10 @@ describe("PaplicoPatternEdit", () => {
 		expect(transientLayer.ownerClientId).toBe("42");
 		expect(store.currentLayerId).toBe(transientLayer.id);
 		// Editing-group stack was extended with the transient layer id.
-		expect(store.editingScopeStack).toContain(transientLayer.id);
+		expect(store.editingScopeStack).toContainEqual({
+			kind: "layer",
+			id: transientLayer.id,
+		});
 
 		// Sanity: working-copy ids must differ from the source def member id.
 		const session = patternEdit.getSession();
@@ -99,7 +103,10 @@ describe("PaplicoPatternEdit", () => {
 		);
 		expect(patternEdit.isActive()).toBe(false);
 		expect(store.currentLayerId).toBe("layer-1");
-		expect(store.editingScopeStack).not.toContain(transientLayer.id);
+		expect(store.editingScopeStack).not.toContainEqual({
+			kind: "layer",
+			id: transientLayer.id,
+		});
 	});
 
 	it("uses the active viewport center when expanding a pattern edit session", () => {
@@ -321,7 +328,10 @@ describe("PaplicoPatternEdit", () => {
 			PATTERN_EDIT_ORIGIN,
 		);
 		expect(store.currentLayerId).toBe("layer-1");
-		expect(store.editingScopeStack).not.toContain(transientLayer.id);
+		expect(store.editingScopeStack).not.toContainEqual({
+			kind: "layer",
+			id: transientLayer.id,
+		});
 		expect(patternEdit.isActive()).toBe(false);
 	});
 
@@ -374,7 +384,7 @@ interface SetupOptions {
 function setup(options: SetupOptions = {}) {
 	const store = {
 		currentLayerId: "layer-1",
-		editingScopeStack: [] as string[],
+		editingScopeStack: [] as EditingScope[],
 		document: {
 			id: "doc",
 			layers: [

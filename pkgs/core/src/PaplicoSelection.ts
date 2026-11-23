@@ -1,3 +1,4 @@
+import type { EditingScope } from "./document/editingScope";
 import type { SpatialIndex } from "./document/SpatialIndex";
 import type { RendererState } from "./renderer/types";
 import {
@@ -10,6 +11,7 @@ import {
 	getArtboardBounds,
 	getContainerChildIds,
 	isContainer,
+	isRepeat,
 } from "./schema";
 
 /**
@@ -46,7 +48,7 @@ export class PaplicoSelection {
 	 */
 	private releaseSessionsDownTo(targetLength: number): void {
 		while (this.store.editingScopeStack.length > targetLength) {
-			const top = this.store.editingScopeStack.at(-1);
+			const top = this.store.editingScopeStack.at(-1)?.id;
 			if (!top) return;
 			if (!this.closeSessionOwning?.(top)) return;
 		}
@@ -175,7 +177,7 @@ export class PaplicoSelection {
 	 * Otherwise: selects all top-level elements in all layers.
 	 */
 	public selectAll(): void {
-		const editingScopeId = this.store.editingScopeStack.at(-1);
+		const editingScopeId = this.store.editingScopeStack.at(-1)?.id;
 
 		let targetIds: string[];
 		if (editingScopeId) {
@@ -232,8 +234,10 @@ export class PaplicoSelection {
 	 * Enter an editing scope (push the element onto the stack).
 	 * For containers only their children can be selected; for a single
 	 * (non-container) element only the element itself stays editable.
+	 * A repeat is edited on its `instanceIndex`-th copy. Entering the repeat
+	 * already on top again moves editing to another copy.
 	 */
-	public enterEditingScope(elementId: string): void {
+	public enterEditingScope(elementId: string, instanceIndex = 0): void {
 		const layerId = this.store.currentLayerId;
 		if (!layerId) return;
 
@@ -242,9 +246,24 @@ export class PaplicoSelection {
 
 		const element = this.store.document.objects[elementId];
 		if (!element) return;
-		if (this.store.editingScopeStack.at(-1) === elementId) return;
 
-		this.store.editingScopeStack = [...this.store.editingScopeStack, elementId];
+		const scope: EditingScope = isRepeat(element)
+			? { kind: "repeatInstance", id: elementId, instanceIndex }
+			: { kind: "element", id: elementId };
+		const stack = this.store.editingScopeStack;
+		const top = stack.at(-1);
+		if (top?.id === elementId) {
+			if (
+				top.kind !== "repeatInstance" ||
+				scope.kind !== "repeatInstance" ||
+				top.instanceIndex === scope.instanceIndex
+			) {
+				return;
+			}
+			this.store.editingScopeStack = [...stack.slice(0, -1), scope];
+		} else {
+			this.store.editingScopeStack = [...stack, scope];
+		}
 		this.clear();
 	}
 
@@ -280,7 +299,9 @@ export class PaplicoSelection {
 	 * Used by breadcrumb item click.
 	 */
 	public navigateToScopeLevel(elementId: string): void {
-		const idx = this.store.editingScopeStack.indexOf(elementId);
+		const idx = this.store.editingScopeStack.findIndex(
+			(scope) => scope.id === elementId,
+		);
 		if (idx < 0) return;
 		this.releaseSessionsDownTo(idx + 1);
 		if (this.store.editingScopeStack.length <= idx + 1) return;
@@ -307,7 +328,7 @@ export class PaplicoSelection {
 	public isElementEditable(elementId: string): boolean {
 		if (this.spatial.isElementLocked(elementId)) return false;
 
-		const currentScopeId = this.store.editingScopeStack.at(-1);
+		const currentScopeId = this.store.editingScopeStack.at(-1)?.id;
 		if (!currentScopeId) return true;
 
 		// Layer-id scope: every element directly held by the scoped layer is

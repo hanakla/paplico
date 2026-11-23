@@ -72,6 +72,7 @@ import { Quadtree } from "../utils/geometry/query/Quadtree";
 import { createMeshWarpInverse } from "../utils/geometry/reshape/meshWarp";
 import {
 	type Affine2D,
+	affineToElementTransform,
 	composeAffine,
 	elementTransformToAffine,
 } from "../utils/geometry/space/affine";
@@ -98,6 +99,7 @@ import {
 	localAppearances,
 	resolveElementAppearance,
 } from "./appearancePresets";
+import type { EditingScope } from "./editingScope";
 import { CompoundPathCache } from "./elementGeometry/CompoundPathCache";
 import type { FilterCapabilityLookup } from "./elementGeometry/filterCapabilities";
 import { calculatePreFilteredElementBounds } from "./elementGeometry/filteredBounds";
@@ -240,7 +242,7 @@ export class SpatialIndex {
 	private unsubscribes: Array<() => void> = [];
 
 	public constructor(
-		private store: { document: Document; editingScopeStack: string[] },
+		private store: { document: Document; editingScopeStack: EditingScope[] },
 	) {}
 
 	/**
@@ -932,7 +934,7 @@ export class SpatialIndex {
 		}
 
 		// In an editing scope, also include children of the active container.
-		const editingScopeIdForSnap = this.store.editingScopeStack.at(-1);
+		const editingScopeIdForSnap = this.store.editingScopeStack.at(-1)?.id;
 		if (editingScopeIdForSnap) {
 			const container = this.store.document.objects[editingScopeIdForSnap];
 			const snapChildIds = container ? getContainerChildIds(container) : null;
@@ -1322,7 +1324,7 @@ export class SpatialIndex {
 			height: tolerance * 2,
 		});
 
-		const editingScopeId = this.store.editingScopeStack.at(-1);
+		const editingScopeId = this.store.editingScopeStack.at(-1)?.id;
 		const candidates = this.queryElements(
 			layerId,
 			bounds,
@@ -1454,14 +1456,14 @@ export class SpatialIndex {
 			// editing scope — even a deep search must not leak through it.
 			if (
 				isMesh(element) &&
-				!this.store.editingScopeStack.includes(element.id)
+				!this.store.editingScopeStack.some((scope) => scope.id === element.id)
 			) {
 				return null;
 			}
 			if (!deepSearch) {
 				// Only dig into container children if we are editing inside this container
 				// or if this container is a direct child of the current editing scope.
-				const editingScopeId = this.store.editingScopeStack.at(-1);
+				const editingScopeId = this.store.editingScopeStack.at(-1)?.id;
 				const canDigInto =
 					editingScopeId === element.id ||
 					(editingScopeId != null &&
@@ -1620,7 +1622,7 @@ export class SpatialIndex {
 		maxX: number,
 		maxY: number,
 	): AnyArtObject[] {
-		const editingScopeId = this.store.editingScopeStack.at(-1);
+		const editingScopeId = this.store.editingScopeStack.at(-1)?.id;
 		const candidates = this.queryElements(
 			layerId,
 			brandWorldBBox({
@@ -1926,8 +1928,51 @@ export class SpatialIndex {
 		const element = elementsMap.get(elementId);
 		if (!element) return IDENTITY_TRANSFORM;
 		return (
-			composeAncestorMatrix(element, elementsMap, this.parentGroupMap) ??
-			IDENTITY_TRANSFORM
+			composeAncestorMatrix(
+				element,
+				elementsMap,
+				this.parentGroupMap,
+				(container) => this.resolveEditedCopyPlacement(container),
+			) ?? IDENTITY_TRANSFORM
+		);
+	}
+
+	/**
+	 * Where the repeat copy the user is editing on places the repeat's
+	 * sources, or null for any other container. Editing tools read every
+	 * source position through this, so they work on that copy.
+	 */
+	private resolveEditedCopyPlacement(
+		container: AnyArtObject,
+	): ElementTransform | null {
+		if (!isRepeat(container)) return null;
+		const scope = this.store.editingScopeStack.find(
+			(s) => s.kind === "repeatInstance" && s.id === container.id,
+		);
+		if (scope?.kind !== "repeatInstance") return null;
+		const instances = this.resolveRepeatLayout(container)?.instances ?? [];
+		const instance = instances[scope.instanceIndex] ?? instances[0];
+		return instance ? affineToElementTransform(instance) : null;
+	}
+
+	/**
+	 * Index of the frontmost copy of a repeat drawn at a world point, or null
+	 * when no copy is there.
+	 */
+	public findRepeatInstanceAtPoint(
+		repeatId: string,
+		x: number,
+		y: number,
+		tolerance = 5,
+	): number | null {
+		const repeat = this.store.document.objects[repeatId];
+		if (!repeat || !isRepeat(repeat)) return null;
+		return this.findRepeatInstanceAt(
+			repeat,
+			asLocalCoord(x),
+			asLocalCoord(y),
+			tolerance,
+			this.resolveElementWorldTransform(repeatId, repeat),
 		);
 	}
 
@@ -1980,7 +2025,10 @@ export class SpatialIndex {
 			// Nested mesh warp containers keep the same scope barrier as the
 			// top-level path search: children stay unreachable until the mesh's
 			// own editing scope is entered.
-			if (isMesh(child) && !this.store.editingScopeStack.includes(child.id))
+			if (
+				isMesh(child) &&
+				!this.store.editingScopeStack.some((scope) => scope.id === child.id)
+			)
 				continue;
 			const nestedChildIds = getContainerChildIds(child);
 			if (!nestedChildIds) continue;
@@ -2403,7 +2451,9 @@ export class SpatialIndex {
 		// inverse (which pivots around the local-bounds center, not the source
 		// union center the repeat transform actually pivots around).
 		if (isRepeat(element)) {
-			return this.isPointOnRepeatInstances(element, x, y, tolerance, placement);
+			return (
+				this.findRepeatInstanceAt(element, x, y, tolerance, placement) !== null
+			);
 		}
 
 		const local = this.toElementLocal(element, x, y, placement);
@@ -2729,62 +2779,81 @@ export class SpatialIndex {
 	}
 
 	/**
-	 * Test every instance a repeat produces. `x`/`y` are in the repeat's parent
-	 * space (world for a top-level repeat), where `placement` is the repeat's
-	 * transform. For each instance the point is mapped back through the
-	 * instance's full placement — `placement` (pivoted at the source union
-	 * center) composed with the instance affine —
-	 * into the sources' authored space, then hit-tested against the source
-	 * geometry (isPointOnElement handles each source's own transform/fill).
+	 * The box a repeat's sources span in their authored space, and the
+	 * placement of every copy, which pivots on that box's center. Null when no
+	 * source resolves.
 	 */
-	private isPointOnRepeatInstances(
+	private resolveRepeatLayout(
 		repeat: RepeatObject,
-		x: LocalCoord,
-		y: LocalCoord,
-		tolerance: number,
-		placement: ElementTransform,
-	): boolean {
+	): { sourceUnion: BoundingBox; instances: Affine2D[] } | null {
 		const sourceUnion = calculateRepeatSourceUnion(
 			repeat,
 			this.getElementsMapCached(),
 			this.localBoundsCache,
 		);
-		if (!sourceUnion) return false;
-
+		if (!sourceUnion) return null;
 		const center = {
 			x: (sourceUnion.minX + sourceUnion.maxX) / 2,
 			y: (sourceUnion.minY + sourceUnion.maxY) / 2,
 		};
+		return {
+			sourceUnion,
+			instances: computeRepeatInstances(repeat, center),
+		};
+	}
+
+	/**
+	 * Index of the frontmost repeat copy drawn at the point, or null. `x`/`y`
+	 * are in the repeat's parent space (world for a top-level repeat), where
+	 * `placement` is the repeat's transform. For each copy the point is mapped
+	 * back through `placement` composed with the copy's placement into the
+	 * sources' authored space, then hit-tested against the source geometry
+	 * (isPointOnElement handles each source's own transform/fill).
+	 */
+	private findRepeatInstanceAt(
+		repeat: RepeatObject,
+		x: LocalCoord,
+		y: LocalCoord,
+		tolerance: number,
+		placement: ElementTransform,
+	): number | null {
+		const layout = this.resolveRepeatLayout(repeat);
+		if (!layout) return null;
 		const outer = elementTransformToAffine(placement);
 
 		// Grid copies are clipped to the fill region, so a point outside it never
 		// hits — even where an unclipped tile would still extend.
 		if (repeat.mode === "grid") {
 			const authored = inverseAffinePoint(outer, x, y);
-			if (!authored) return false;
-			const region = repeatGridRegion(repeat, sourceUnion);
+			if (!authored) return null;
+			const region = repeatGridRegion(repeat, layout.sourceUnion);
 			if (
 				authored.x < region.minX ||
 				authored.x > region.maxX ||
 				authored.y < region.minY ||
 				authored.y > region.maxY
 			) {
-				return false;
+				return null;
 			}
 		}
 
-		for (const instance of computeRepeatInstances(repeat, center)) {
-			const local = inverseAffinePoint(composeAffine(outer, instance), x, y);
+		// Later copies draw over earlier ones.
+		for (let i = layout.instances.length - 1; i >= 0; i--) {
+			const local = inverseAffinePoint(
+				composeAffine(outer, layout.instances[i]),
+				x,
+				y,
+			);
 			if (!local) continue;
 			const lx = asLocalCoord(local.x);
 			const ly = asLocalCoord(local.y);
 			for (const id of repeat.sourceIds) {
 				const source = this.store.document.objects[id];
 				if (!source || !isElementVisible(source)) continue;
-				if (this.isPointOnElement(source, lx, ly, tolerance, [])) return true;
+				if (this.isPointOnElement(source, lx, ly, tolerance, [])) return i;
 			}
 		}
-		return false;
+		return null;
 	}
 
 	/**

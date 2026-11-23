@@ -1,3 +1,4 @@
+import type { EditingScope } from "../document/editingScope";
 import type {
 	AnyArtObject,
 	BoundingBox,
@@ -82,7 +83,7 @@ export interface FrameRequest {
 	 *  changedElements alone would miss. */
 	defRevision?: number;
 	boundsCache?: WorldBoundsCache;
-	editingScopeStack?: string[];
+	editingScopeStack?: EditingScope[];
 	/** Element rendered at full opacity while the rest of the document is
 	 *  dimmed (Scene3D edit isolation — same look as group editing). */
 	isolatedElementId?: string | null;
@@ -172,7 +173,7 @@ export interface RendererState {
 	/** Camera of the open scene editor, null while none is open. Mirrors
 	 *  Scene3DController's editor camera. */
 	scene3dEditorCamera: Scene3DCamera | null;
-	editingScopeStack: string[];
+	editingScopeStack: EditingScope[];
 	selectedArtboardId: string | null;
 	/** Artboard under the last canvas press with any tool, or null when that
 	 *  press landed outside every artboard. Paste in front / back places the

@@ -7,6 +7,7 @@
  * interior bends along the cage.
  */
 
+import type { EditingScope } from "../../../document/editingScope";
 import {
 	type AnyArtObject,
 	type BoundingBox,
@@ -68,7 +69,7 @@ interface MeshRendererDeps {
 		currentTransformIndex: number;
 		currentMaskBindGroup: GPUBindGroup;
 		/** Containers the user has stepped into, outermost first. */
-		editingScopeStack: string[];
+		editingScopeStack: EditingScope[];
 	};
 }
 
@@ -110,7 +111,9 @@ export class MeshElementRenderer {
 		// Inside the container the children are edited where they are stored, so
 		// they are drawn unwarped and the warp result stays as a faint ghost of
 		// what the cage is making of them.
-		const editingInside = renderState.editingScopeStack.includes(mesh.id);
+		const editingInside = renderState.editingScopeStack.some(
+			(scope) => scope.id === mesh.id,
+		);
 		const warpAlpha = editingInside ? meshAlpha * WARP_GHOST_ALPHA : meshAlpha;
 		if (transients.length === 0 && !editingInside) return;
 

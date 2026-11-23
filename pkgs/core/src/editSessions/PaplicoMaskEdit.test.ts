@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { YjsProvider } from "../collaboration/YjsProvider";
+import type { EditingScope } from "../document/editingScope";
 import { createIdentityTransform } from "../document/factory";
 import type { RendererState } from "../renderer/types";
 import type {
@@ -34,7 +35,7 @@ describe("PaplicoMaskEdit", () => {
 		const layer = store.document.layers.at(-1)!;
 		expect(layer.transientKind).toBe(TRANSIENT_LAYER_KIND.MASK_EDIT);
 		expect(layer.elementIds).toEqual(["m1"]);
-		expect(store.editingScopeStack).toEqual([layer.id]);
+		expect(store.editingScopeStack).toEqual([{ kind: "layer", id: layer.id }]);
 		expect(store.currentLayerId).toBe(layer.id);
 		expect(store.maskEditSession).toEqual({ ownerId: "owner" });
 	});
@@ -354,7 +355,7 @@ function setup(
 ) {
 	const store = {
 		currentLayerId: "layer-1",
-		editingScopeStack: [] as string[],
+		editingScopeStack: [] as EditingScope[],
 		selectedElementIds: [] as string[],
 		selectionBounds: null,
 		document: {

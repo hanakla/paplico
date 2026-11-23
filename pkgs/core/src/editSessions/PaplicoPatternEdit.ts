@@ -274,14 +274,11 @@ export class PaplicoPatternEdit {
 		);
 		this.syncUndoRedoState();
 
-		// Push the first cloned root group / element id onto the editing
-		// stack so tools scope themselves to the working copies. We use the
-		// transient layer id as a stand-in editing-scope token; the existing
-		// editingScopeStack handling treats anything on the stack as the
-		// active editing context (see collectEditablePaths).
+		// Push the transient layer as a layer scope so tools scope themselves
+		// to the working copies (see collectEditablePaths).
 		this.previousCurrentLayerId = this.store.currentLayerId;
 		this.store.currentLayerId = transientLayerId;
-		this.store.editingScopeStack.push(transientLayerId);
+		this.store.editingScopeStack.push({ kind: "layer", id: transientLayerId });
 		this.clearSelectionState();
 
 		this.session = {
@@ -369,7 +366,9 @@ export class PaplicoPatternEdit {
 			{ deleteObjects: false },
 			PATTERN_EDIT_ORIGIN,
 		);
-		const idx = this.store.editingScopeStack.lastIndexOf(s.transientLayerId);
+		const idx = this.store.editingScopeStack.findLastIndex(
+			(scope) => scope.id === s.transientLayerId,
+		);
 		if (idx >= 0) this.store.editingScopeStack.splice(idx, 1);
 		this.restoreCurrentLayerId();
 
@@ -407,7 +406,9 @@ export class PaplicoPatternEdit {
 			{ deleteObjects: false },
 			PATTERN_EDIT_ORIGIN,
 		);
-		const idx = this.store.editingScopeStack.lastIndexOf(s.transientLayerId);
+		const idx = this.store.editingScopeStack.findLastIndex(
+			(scope) => scope.id === s.transientLayerId,
+		);
 		if (idx >= 0) this.store.editingScopeStack.splice(idx, 1);
 		this.restoreCurrentLayerId();
 		this.teardownSessionUndoManager();

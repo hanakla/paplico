@@ -130,13 +130,21 @@ export type ToolContextOptions = {
 	findLeafElementAtPoint: (x: number, y: number) => AnyArtObject | null;
 	/** Every element painted at a point across the pickable layers, front to back. */
 	findPaintedElementsAtPoint: (x: number, y: number) => PaintedHit[];
+	/** Index of the frontmost copy of a repeat drawn at a world point, or null. */
+	findRepeatInstanceAtPoint: (
+		repeatId: string,
+		x: number,
+		y: number,
+		tolerance?: number,
+	) => number | null;
 	findElementsInRect: (
 		minX: number,
 		minY: number,
 		maxX: number,
 		maxY: number,
 	) => AnyArtObject[];
-	enterEditingScope: (elementId: string) => void;
+	/** Enter an element's editing scope. A repeat is edited on its `instanceIndex`-th copy. */
+	enterEditingScope: (elementId: string, instanceIndex?: number) => void;
 	exitEditingScopeOneLevel: () => void;
 	getEditingScopeId: () => string | null;
 	isElementEditable: (elementId: string) => boolean;

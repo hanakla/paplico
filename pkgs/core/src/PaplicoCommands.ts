@@ -349,7 +349,7 @@ export class PaplicoCommands {
 	private isCurrentContextLocked(): boolean {
 		if (this.isLayerLocked()) return true;
 
-		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
+		const editingScopeId = this.ctx.store.editingScopeStack.at(-1)?.id;
 		if (editingScopeId && this.isElementLocked(editingScopeId)) return true;
 		return false;
 	}
@@ -461,7 +461,7 @@ export class PaplicoCommands {
 	 * active, or null when they stay at the layer root.
 	 */
 	private getEditingScopeContainerId(): string | null {
-		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
+		const editingScopeId = this.ctx.store.editingScopeStack.at(-1)?.id;
 		if (!editingScopeId) return null;
 
 		const scopeElement = this.ctx.store.document.objects[editingScopeId];
@@ -1164,7 +1164,7 @@ export class PaplicoCommands {
 		if (this.cannotMutate()) return null;
 		elementIds = elementIds.filter((id) => !this.isElementLocked(id));
 
-		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
+		const editingScopeId = this.ctx.store.editingScopeStack.at(-1)?.id;
 		if (editingScopeId) {
 			const scopedLayer = this.ctx.store.document.layers.find(
 				(layer) => layer.id === editingScopeId,
@@ -1398,7 +1398,8 @@ export class PaplicoCommands {
 	public ungroupElements(groupId: string): void {
 		if (this.cannotMutate() || this.isElementLocked(groupId)) return;
 		const parentId =
-			this.ctx.store.editingScopeStack.at(-1) ?? this.ctx.store.currentLayerId;
+			this.ctx.store.editingScopeStack.at(-1)?.id ??
+			this.ctx.store.currentLayerId;
 		if (!parentId) return;
 
 		const objects = this.ctx.store.document.objects;
@@ -2154,7 +2155,7 @@ export class PaplicoCommands {
 			return null;
 		}
 
-		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
+		const editingScopeId = this.ctx.store.editingScopeStack.at(-1)?.id;
 
 		if (editingScopeId) {
 			// Inside an editing scope: use the group's childIds for index lookup
@@ -2253,7 +2254,7 @@ export class PaplicoCommands {
 			filters: deepClone(element.filters ?? []),
 		};
 
-		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
+		const editingScopeId = this.ctx.store.editingScopeStack.at(-1)?.id;
 		let groupId: string | null = null;
 
 		if (editingScopeId) {
@@ -4686,7 +4687,8 @@ export class PaplicoCommands {
 		// of selection order (click order or marquee/lasso quadtree traversal
 		// order). Mirrors createBlendFromSelection's use of orderSourcesByContainer.
 		const parentId =
-			this.ctx.store.editingScopeStack.at(-1) ?? this.ctx.store.currentLayerId;
+			this.ctx.store.editingScopeStack.at(-1)?.id ??
+			this.ctx.store.currentLayerId;
 		const orderedIds = parentId
 			? orderSourcesByContainer(
 					this.ctx.store.document,

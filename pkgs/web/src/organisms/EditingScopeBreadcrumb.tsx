@@ -29,10 +29,11 @@ export function EditingScopeBreadcrumb() {
 	});
 
 	// An open scene editor reads as one more scope below the editing scopes.
+	const scopeIds = snap.editingScopeStack.map((scope) => scope.id);
 	const stack =
 		snap.scene3dEditorCamera && snap.scene3dEditingElementId
-			? [...snap.editingScopeStack, snap.scene3dEditingElementId]
-			: snap.editingScopeStack;
+			? [...scopeIds, snap.scene3dEditingElementId]
+			: scopeIds;
 	if (stack.length === 0) return null;
 
 	// A session's scope entry is the working layer it lends the tools, not an

@@ -149,7 +149,7 @@ export class PaplicoMaskEdit {
 
 		this.previousCurrentLayerId = this.store.currentLayerId;
 		this.store.currentLayerId = transientLayerId;
-		this.store.editingScopeStack.push(transientLayerId);
+		this.store.editingScopeStack.push({ kind: "layer", id: transientLayerId });
 		this.clearSelectionState();
 
 		this.session = {
@@ -262,8 +262,8 @@ export class PaplicoMaskEdit {
 			deleteObjects: false,
 		});
 
-		const idx = this.store.editingScopeStack.lastIndexOf(
-			session.transientLayerId,
+		const idx = this.store.editingScopeStack.findLastIndex(
+			(scope) => scope.id === session.transientLayerId,
 		);
 		if (idx >= 0) this.store.editingScopeStack.splice(idx, 1);
 		this.restoreCurrentLayerId();

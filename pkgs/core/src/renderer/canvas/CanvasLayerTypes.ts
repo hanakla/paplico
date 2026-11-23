@@ -5,6 +5,7 @@
  * imports.
  */
 
+import type { EditingScope } from "../../document/editingScope";
 import type {
 	AnyArtObject,
 	BlendMode,
@@ -131,7 +132,7 @@ export interface CompositeState {
 }
 
 export interface RenderState {
-	editingScopeStack: string[];
+	editingScopeStack: EditingScope[];
 	/** Scene3D edit isolation: element kept at full opacity over the dim. */
 	isolatedElementId: string | null;
 	/**

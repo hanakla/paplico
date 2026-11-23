@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { EditingScope } from "./document/editingScope";
 import { createIdentityTransform } from "./document/factory";
 import { SpatialIndex } from "./document/SpatialIndex";
 import { PaplicoSelection } from "./PaplicoSelection";
@@ -20,7 +21,7 @@ describe("PaplicoSelection: leaving a scope a session owns", () => {
 
 		expect(closeSession).toHaveBeenCalledWith("session-1");
 		// The session popped its own entry; the caller must not pop a second.
-		expect(store.editingScopeStack).toEqual(["group-1"]);
+		expect(scopeIds(store)).toEqual(["group-1"]);
 	});
 
 	it("should pop normally when no session owns the entry", () => {
@@ -29,7 +30,7 @@ describe("PaplicoSelection: leaving a scope a session owns", () => {
 		selection.exitEditingScopeOneLevel();
 
 		expect(closeSession).toHaveBeenCalledWith("group-2");
-		expect(store.editingScopeStack).toEqual(["group-1"]);
+		expect(scopeIds(store)).toEqual(["group-1"]);
 	});
 
 	it("should let the session close itself when exiting every level", () => {
@@ -38,7 +39,7 @@ describe("PaplicoSelection: leaving a scope a session owns", () => {
 		selection.exitEditingScope();
 
 		expect(closeSession).toHaveBeenCalledWith("session-1");
-		expect(store.editingScopeStack).toEqual([]);
+		expect(scopeIds(store)).toEqual([]);
 	});
 
 	it("should let the session close itself when the breadcrumb jumps below it", () => {
@@ -47,7 +48,7 @@ describe("PaplicoSelection: leaving a scope a session owns", () => {
 		selection.navigateToScopeLevel("group-1");
 
 		expect(closeSession).toHaveBeenCalledWith("session-1");
-		expect(store.editingScopeStack).toEqual(["group-1"]);
+		expect(scopeIds(store)).toEqual(["group-1"]);
 	});
 
 	it("should leave a scope the breadcrumb keeps alone", () => {
@@ -60,7 +61,7 @@ describe("PaplicoSelection: leaving a scope a session owns", () => {
 		selection.navigateToScopeLevel("group-2");
 
 		expect(closeSession).toHaveBeenCalledWith("session-1");
-		expect(store.editingScopeStack).toEqual(["group-1", "group-2"]);
+		expect(scopeIds(store)).toEqual(["group-1", "group-2"]);
 	});
 });
 
@@ -68,6 +69,40 @@ describe("PaplicoSelection: leaving a scope a session owns", () => {
  * Undo / redo selects what it changed so the user can see the effect of the
  * step, the same way a fresh edit leaves its result selected.
  */
+describe("PaplicoSelection: editing a repeat on one of its copies", () => {
+	function setupRepeat() {
+		const { selection, store } = setupDocument();
+		store.document.objects.repeat = {
+			...store.document.objects.a1,
+			id: "repeat",
+			type: "repeat",
+			sourceIds: ["a2"],
+		} as AnyArtObject;
+		return { selection, store };
+	}
+
+	it("should enter a repeat on the given copy", () => {
+		const { selection, store } = setupRepeat();
+
+		selection.enterEditingScope("repeat", 2);
+
+		expect(store.editingScopeStack).toEqual([
+			{ kind: "repeatInstance", id: "repeat", instanceIndex: 2 },
+		]);
+	});
+
+	it("should move editing to another copy without stacking the repeat twice", () => {
+		const { selection, store } = setupRepeat();
+		selection.enterEditingScope("repeat", 2);
+
+		selection.enterEditingScope("repeat", 1);
+
+		expect(store.editingScopeStack).toEqual([
+			{ kind: "repeatInstance", id: "repeat", instanceIndex: 1 },
+		]);
+	});
+});
+
 describe("PaplicoSelection: selecting what an undo or redo changed", () => {
 	it("should select the changed objects", () => {
 		const { selection, store } = setupDocument();
@@ -202,11 +237,16 @@ describe("PaplicoSelection: selecting one element", () => {
 	});
 });
 
-/** `session-*` ids stand for scope entries a session owns: closing one pops
+/** `session-*` ids stand for layer scopes a session owns: closing one pops
  *  its own entry, exactly as the real sessions' teardown does. */
 function setup(stack: string[]) {
 	const store = {
-		editingScopeStack: [...stack],
+		editingScopeStack: stack.map(
+			(id): EditingScope => ({
+				kind: id.startsWith("session-") ? "layer" : "element",
+				id,
+			}),
+		),
 		selectedElementIds: [],
 		selectionBounds: null,
 		// clear() writes the selection overlay through this channel.
@@ -216,7 +256,9 @@ function setup(stack: string[]) {
 
 	const closeSession = vi.fn((scopeId: string) => {
 		if (!scopeId.startsWith("session-")) return false;
-		const idx = store.editingScopeStack.lastIndexOf(scopeId);
+		const idx = store.editingScopeStack.findLastIndex(
+			(scope) => scope.id === scopeId,
+		);
 		if (idx >= 0) store.editingScopeStack.splice(idx, 1);
 		return true;
 	});
@@ -272,4 +314,8 @@ function setupDocument() {
 	const spatial = new SpatialIndex(store);
 	spatial.rebuildAllIndices();
 	return { selection: new PaplicoSelection(store, spatial), store };
+}
+
+function scopeIds(store: RendererState): string[] {
+	return store.editingScopeStack.map((scope) => scope.id);
 }

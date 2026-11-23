@@ -404,19 +404,28 @@ export function placeElement(
 
 /**
  * The chain an element's ancestors place it under, or null when it sits
- * directly in a layer.
+ * directly in a layer. `contentPlacement` gives a container a placement of
+ * its content inside its own transform, such as the repeat copy being edited.
  */
 export function composeAncestorMatrix(
 	element: AnyArtObject,
 	elementsMap: ReadonlyMap<string, AnyArtObject>,
 	parentGroupMap: ReadonlyMap<string, string>,
+	contentPlacement?: (container: AnyArtObject) => ElementTransform | null,
 ): ElementTransform | null {
 	const parent = elementsMap.get(parentGroupMap.get(element.id) ?? "");
 	if (!parent) return null;
-	return placeElement(
-		composeAncestorMatrix(parent, elementsMap, parentGroupMap),
+	const placed = placeElement(
+		composeAncestorMatrix(
+			parent,
+			elementsMap,
+			parentGroupMap,
+			contentPlacement,
+		),
 		parent,
 	);
+	const content = contentPlacement?.(parent);
+	return content ? composeTransforms(placed, content) : placed;
 }
 
 /** An element's own transform composed with every ancestor's. */

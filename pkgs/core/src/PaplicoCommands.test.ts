@@ -6,6 +6,7 @@ import {
 	type YjsProviderCallbacks,
 } from "./collaboration/YjsProvider";
 import { localAppearances } from "./document/appearancePresets";
+import type { EditingScope } from "./document/editingScope";
 import {
 	createDefaultBrushSettings,
 	createIdentityTransform,
@@ -176,7 +177,7 @@ describe("PaplicoCommands", () => {
 			const store = {
 				currentLayerId: layer.id,
 				selectedElementIds: [path.id],
-				editingScopeStack: [parentGroup.id],
+				editingScopeStack: [{ kind: "element", id: parentGroup.id }],
 				document: {
 					layers: [layer],
 					objects: { [path.id]: path, [parentGroup.id]: parentGroup },
@@ -718,7 +719,7 @@ describe("PaplicoCommands", () => {
 			const store = {
 				currentLayerId: "layer-1",
 				selectedElementIds: ["child-1"],
-				editingScopeStack: ["group-1"],
+				editingScopeStack: [{ kind: "element", id: "group-1" }],
 				document: {
 					layers: [layer],
 					objects: { "group-1": group, "child-1": first, "child-2": second },
@@ -905,7 +906,7 @@ describe("PaplicoCommands", () => {
 			const store = {
 				currentLayerId: "layer-1",
 				selectedElementIds: ["existing"],
-				editingScopeStack: ["group-1"],
+				editingScopeStack: [{ kind: "element", id: "group-1" }],
 				document: {
 					layers: [layer],
 					objects: { "group-1": group, below, existing, "path-1": sourcePath },
@@ -983,7 +984,7 @@ describe("PaplicoCommands", () => {
 				reorderGroupChildren,
 			} = createGroupPasteCommands({
 				selectedElementIds: [],
-				editingScopeStack: ["group-1"],
+				editingScopeStack: [{ kind: "element", id: "group-1" }],
 			});
 
 			const pastedIds = commands.pasteElements([createPath("path-1")]);
@@ -1008,7 +1009,7 @@ describe("PaplicoCommands", () => {
 				reorderGroupChildren,
 			} = createGroupPasteCommands({
 				selectedElementIds: ["below"],
-				editingScopeStack: ["group-1"],
+				editingScopeStack: [{ kind: "element", id: "group-1" }],
 			});
 
 			const pastedIds = commands.pasteElements([createPath("path-1")], {
@@ -1183,7 +1184,7 @@ describe("PaplicoCommands", () => {
 			if (!groupId) throw new Error("group should be created");
 			provider.updateElement("layer", groupId, { transform: groupT });
 			sync();
-			store.editingScopeStack = [groupId];
+			store.editingScopeStack = [{ kind: "element", id: groupId }];
 			store.selectedElementIds = ["blend-1"];
 
 			const [copyId] = commands.duplicateElements();
@@ -1324,7 +1325,7 @@ describe("PaplicoCommands", () => {
 		it("should make the compound the new clip when uniting a clip group's clip path with a child path", () => {
 			const { store, commands, sync, groupId } = createClipGroupCommands();
 
-			store.editingScopeStack = [groupId];
+			store.editingScopeStack = [{ kind: "element", id: groupId }];
 			store.selectedElementIds = ["clip", "a"];
 			const compoundId = commands.createCompoundPathFromSelection("union");
 			sync();
@@ -1338,7 +1339,7 @@ describe("PaplicoCommands", () => {
 		it("should keep the clip path when uniting only non-clip children", () => {
 			const { store, commands, sync, groupId } = createClipGroupCommands();
 
-			store.editingScopeStack = [groupId];
+			store.editingScopeStack = [{ kind: "element", id: groupId }];
 			store.selectedElementIds = ["a", "other"];
 			const compoundId = commands.createCompoundPathFromSelection("union");
 			sync();
@@ -1813,7 +1814,7 @@ describe("PaplicoCommands", () => {
 			const store = {
 				currentLayerId: "layer-1",
 				selectedElementIds: ["child-1"],
-				editingScopeStack: ["group-1"],
+				editingScopeStack: [{ kind: "element", id: "group-1" }],
 				document: {
 					layers: [layer],
 					objects: { "group-1": group, "child-1": child },
@@ -1957,7 +1958,10 @@ describe("PaplicoCommands", () => {
 				currentLayerId: "layer-1",
 				selectedElementIds: [],
 				// Nested single-element scope: group-1 -> child-1
-				editingScopeStack: ["group-1", "child-1"],
+				editingScopeStack: [
+					{ kind: "element", id: "group-1" },
+					{ kind: "element", id: "child-1" },
+				],
 				document: {
 					layers: [layer],
 					objects: { "group-1": group, "child-1": child },
@@ -2014,7 +2018,7 @@ describe("PaplicoCommands", () => {
 			const store = {
 				currentLayerId: "layer-1",
 				selectedElementIds: [],
-				editingScopeStack: ["scoped-path"],
+				editingScopeStack: [{ kind: "element", id: "scoped-path" }],
 				document: {
 					layers: [layer],
 					objects: { "scoped-path": scoped },
@@ -3293,7 +3297,7 @@ describe("PaplicoCommands", () => {
 			const outerId = provider.groupElements("layer", [innerId, "c"]);
 			if (!outerId) throw new Error("group should be created");
 			sync();
-			store.editingScopeStack = [outerId];
+			store.editingScopeStack = [{ kind: "element", id: outerId }];
 
 			commands.ungroupElements(innerId);
 			sync();
@@ -5523,7 +5527,7 @@ function createProviderCommands(spatialOverrides: Partial<SpatialIndex> = {}) {
 	const provider = new YjsProvider({ callbacks });
 	store = {
 		currentLayerId: "layer",
-		editingScopeStack: [] as string[],
+		editingScopeStack: [] as EditingScope[],
 		selectedElementIds: [] as string[],
 		document: extractDocumentFromYDoc(provider.ydoc),
 	} as unknown as RendererState;
@@ -5648,7 +5652,7 @@ function createGroupPasteCommands({
 	editingScopeStack,
 }: {
 	selectedElementIds: string[];
-	editingScopeStack: string[];
+	editingScopeStack: EditingScope[];
 }) {
 	const below = createPath("below");
 	const above = createPath("above");

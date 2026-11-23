@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { EditingScope } from "../../../document/editingScope";
 import { createIdentityTransform } from "../../../document/factory";
 import type {
 	AnyArtObject,
@@ -195,7 +196,7 @@ describe("MeshElementRenderer", () => {
 			[child.id, child],
 			[mesh.id, mesh],
 		]);
-		const renderState = makeRenderState([mesh.id]);
+		const renderState = makeRenderState([{ kind: "element", id: mesh.id }]);
 		renderState.currentTransformIndex = 3;
 		const slots = { [mesh.id]: 3, [child.id]: 7 };
 		// Each call records the transform entry it was drawn through.
@@ -246,7 +247,7 @@ describe("MeshElementRenderer", () => {
 });
 
 /** Minimal render state: only the two fields transient masking swaps. */
-function makeRenderState(editingScopeStack: string[] = []) {
+function makeRenderState(editingScopeStack: EditingScope[] = []) {
 	return {
 		currentTransformIndex: 0,
 		currentMaskBindGroup: {} as GPUBindGroup,

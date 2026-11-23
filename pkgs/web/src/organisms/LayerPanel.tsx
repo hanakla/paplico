@@ -198,11 +198,7 @@ export function LayerPanel() {
 		});
 	});
 
-	const editingScopeStack = snap.editingScopeStack;
-	const editingScopeId =
-		editingScopeStack.length > 0
-			? (editingScopeStack[editingScopeStack.length - 1] as string)
-			: null;
+	const editingScopeId = snap.editingScopeStack.at(-1)?.id ?? null;
 	const scopeElement = editingScopeId
 		? (snap.document.objects[editingScopeId] as AnyArtObject | undefined)
 		: null;

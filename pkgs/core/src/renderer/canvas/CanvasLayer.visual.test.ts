@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { EditingScope } from "../../document/editingScope";
 import {
 	createDefaultDocument,
 	createDefaultLayer,
@@ -316,7 +317,7 @@ function renderFrame(
 	renderer: RenderOrchestrator,
 	doc: Document,
 	changedElements: ChangedElements,
-	editingScopeStack?: string[],
+	editingScopeStack?: EditingScope[],
 ): void {
 	renderer.render(
 		{
@@ -340,7 +341,7 @@ async function renderEditedGroup(
 	if (!device) throw new Error("no GPU device");
 	// The glass solid bakes asynchronously, so the first frame can miss it.
 	for (let frame = 0; frame < 2; frame++) {
-		renderFrame(renderer, doc, UNCHANGED, [groupId]);
+		renderFrame(renderer, doc, UNCHANGED, [{ kind: "element", id: groupId }]);
 		await device.queue.onSubmittedWorkDone();
 	}
 	return capturePresented(renderer, canvas);

@@ -1571,6 +1571,18 @@ export class SelectTool implements Tool {
 			);
 
 			if (!element || !this.context.isElementEditable(element.id)) {
+				// Inside a repeat, the other copies draw the same sources, so a
+				// double-click on one moves editing onto that copy.
+				const instanceIndex = this.context.findRepeatInstanceAtPoint(
+					editingScopeId,
+					worldX,
+					worldY,
+					tolerance,
+				);
+				if (instanceIndex != null) {
+					this.context.enterEditingScope(editingScopeId, instanceIndex);
+					return;
+				}
 				this.context.exitEditingScopeOneLevel();
 				return;
 			}
@@ -1609,8 +1621,17 @@ export class SelectTool implements Tool {
 				this.context.scene3dOpenEditor(element);
 				return;
 			}
-			// Containers and single elements alike enter an editing scope.
-			this.context.enterEditingScope(element.id);
+			// Containers and single elements alike enter an editing scope. A
+			// repeat is edited on the copy that was double-clicked.
+			this.context.enterEditingScope(
+				element.id,
+				this.context.findRepeatInstanceAtPoint(
+					element.id,
+					worldX,
+					worldY,
+					tolerance,
+				) ?? undefined,
+			);
 		}
 	}
 

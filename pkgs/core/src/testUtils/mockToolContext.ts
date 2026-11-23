@@ -89,6 +89,7 @@ export function createMockToolContext(
 		findElementAtPoint: vi.fn(() => null),
 		findLeafElementAtPoint: vi.fn(() => null),
 		findPaintedElementsAtPoint: vi.fn(() => []),
+		findRepeatInstanceAtPoint: vi.fn(() => null),
 		findElementsInRect: vi.fn(() => []),
 		enterEditingScope: vi.fn(),
 		exitEditingScopeOneLevel: vi.fn(),

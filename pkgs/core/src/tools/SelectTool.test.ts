@@ -1494,6 +1494,38 @@ describe("SelectTool onDoubleClick (editing scope)", () => {
 		expect(context.exitEditingScopeOneLevel).toHaveBeenCalledTimes(1);
 		expect(context.enterEditingScope).not.toHaveBeenCalled();
 	});
+
+	it("should enter a repeat on the copy that was double-clicked", () => {
+		const repeat = {
+			...makePath("repeat-1"),
+			type: "repeat",
+		} as unknown as AnyArtObject;
+		const context = createMockToolContext({
+			getCurrentLayer: () => layer,
+			findElementAtPoint: () => repeat,
+			findRepeatInstanceAtPoint: () => 2,
+		});
+		const tool = new SelectTool(context);
+
+		doubleClick(tool);
+
+		expect(context.enterEditingScope.mock.calls[0]).toEqual(["repeat-1", 2]);
+	});
+
+	it("should move editing onto another copy when double-clicking it inside a repeat", () => {
+		const context = createMockToolContext({
+			getCurrentLayer: () => layer,
+			getEditingScopeId: () => "repeat-1",
+			findElementAtPoint: () => null,
+			findRepeatInstanceAtPoint: () => 3,
+		});
+		const tool = new SelectTool(context);
+
+		doubleClick(tool);
+
+		expect(context.enterEditingScope.mock.calls[0]).toEqual(["repeat-1", 3]);
+		expect(context.exitEditingScopeOneLevel).not.toHaveBeenCalled();
+	});
 });
 
 describe("SelectTool hover outline", () => {

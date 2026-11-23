@@ -8,6 +8,7 @@
   - Double-clicking a 3D scene with the select tool opens a scene editor that draws the element's view on past its frame, over the whole canvas, so the scene first appears where the frame shows it. The editor's camera starts as the element's camera and never changes it, while node edits are written to the scene as before.
   - 3D scene tool: `Scene3DTool.frameSelectedNode()` and `frameScene()` aim the camera at the selected node or the whole scene and move it to the distance where they fit.
   - 3D scene tool: holding Shift during an orbit in the scene editor snaps the view to the nearest of the front, back, side, top and bottom views.
+  - Double-clicking a copy of a repeat with the select tool edits the repeat's objects on that copy, and every copy follows. Double-clicking another copy moves editing onto it.
 - **Elements**
   - `Group.isolated` keeps the blend modes of a group's children from what is under the group.
 - **Renderer**
@@ -22,6 +23,7 @@
   - `Reference3D` is renamed to `Scene3D` in every type, function, tool and `uiState` name. The element type is `"scene3d"`, the tool is `"scene3d"` and the scene definitions are `Document.scenes3d`. Files and rooms stored under the former names are migrated when opened, and earlier versions cannot read what this version saves.
   - `ToolContext.reference3dEdit` is removed. Use `scene3dOpenEditor` instead.
   - `YjsProvider.groupElements` accepts a layer or group ID as its first argument. `groupElementsInGroup` is removed. Use `groupElements` instead.
+  - `RendererState.editingScopeStack` holds `EditingScope` entries instead of IDs. Read an entry's ID from `id`, and whether it is an element, a layer or a repeat copy from `kind`.
 - **Tools**
   - 3D scene tool: an orbit turns around the selected node instead of the camera's target.
   - Text tool touch type: dragging a corner handle stretches the selected characters' width and height apart with `CharOverride.scaleX` and `scaleY` instead of scaling their size. Shift+drag scales their size. `getCharTouchSelection()` and `setCharTouchValues()` read and write the two values.

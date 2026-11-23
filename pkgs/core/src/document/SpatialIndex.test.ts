@@ -30,6 +30,7 @@ import {
 	createMeshWarpInverse,
 	createMeshWarpSampler,
 } from "../utils/geometry/reshape/meshWarp";
+import type { EditingScope } from "./editingScope";
 import {
 	createIdentityTransform,
 	createMeshWarpObjectFromGeometry,
@@ -41,7 +42,7 @@ import { SpatialIndex } from "./SpatialIndex";
 function makeStore(
 	layers: Layer[],
 	objects: Record<string, AnyArtObject>,
-	editingScopeStack: string[] = [],
+	editingScopeStack: EditingScope[] = [],
 	artboards: Artboard[] = [],
 ): RendererState {
 	return {
@@ -319,7 +320,7 @@ function createFilteredIndex(
 		editingScopeStack = [],
 		appearancePresets,
 	}: {
-		editingScopeStack?: string[];
+		editingScopeStack?: EditingScope[];
 		appearancePresets?: AppearancePreset[];
 	} = {},
 ): SpatialIndex {
@@ -429,7 +430,9 @@ describe("SpatialIndex", () => {
 				transform: { ...createIdentityTransform(), x: 300 },
 			});
 			const layer = makeLayer("layer-1", ["group-1"]);
-			const store = makeStore([layer], { "group-1": group, a, b }, ["group-1"]);
+			const store = makeStore([layer], { "group-1": group, a, b }, [
+				{ kind: "element", id: "group-1" },
+			]);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
 
@@ -683,11 +686,9 @@ describe("SpatialIndex", () => {
 			const front = makeImage("front", 0, 0, 100, 100);
 			const group = makeGroup("group-1", ["back", "front"]);
 			const layer = makeLayer("layer-1", ["group-1"]);
-			const store = makeStore(
-				[layer],
-				{ "group-1": group, back, front },
-				["group-1"], // editingScopeStack: inside group-1
-			);
+			const store = makeStore([layer], { "group-1": group, back, front }, [
+				{ kind: "element", id: "group-1" },
+			]);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
 
@@ -701,7 +702,7 @@ describe("SpatialIndex", () => {
 			const group = makeGroup("group-1", ["child-1"]);
 			const layer = makeLayer("layer-1", ["group-1"]);
 			const store = makeStore([layer], { "group-1": group, "child-1": child }, [
-				"group-1",
+				{ kind: "element", id: "group-1" },
 			]);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -713,7 +714,9 @@ describe("SpatialIndex", () => {
 			const scoped = makeImage("scoped", 0, 0, 40, 40);
 			const other = makeImage("other", 100, 0, 40, 40);
 			const layer = makeLayer("layer-1", ["scoped", "other"]);
-			const store = makeStore([layer], { scoped, other }, ["scoped"]);
+			const store = makeStore([layer], { scoped, other }, [
+				{ kind: "element", id: "scoped" },
+			]);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
 
@@ -729,8 +732,8 @@ describe("SpatialIndex", () => {
 			});
 			const layer = makeLayer("layer-1", ["group-1"]);
 			const store = makeStore([layer], { "group-1": group, "child-1": child }, [
-				"group-1",
-				"child-1",
+				{ kind: "element", id: "group-1" },
+				{ kind: "element", id: "child-1" },
 			]);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -750,7 +753,7 @@ describe("SpatialIndex", () => {
 			const store = makeStore(
 				[layer],
 				{ "clip-group": clipGroup, "clip-path": clipPath, "child-1": child },
-				["child-1"],
+				[{ kind: "element", id: "child-1" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -777,7 +780,7 @@ describe("SpatialIndex", () => {
 					"child-group": childGroup,
 					"img-far": imgFar,
 				},
-				["scope"],
+				[{ kind: "element", id: "scope" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -806,7 +809,7 @@ describe("SpatialIndex", () => {
 					"clip-path": clipPath,
 					content,
 				},
-				["scope"],
+				[{ kind: "element", id: "scope" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -867,7 +870,9 @@ describe("SpatialIndex", () => {
 			const scoped = makeImage("scoped", 0, 0, 40, 40);
 			const other = makeImage("other", 100, 0, 40, 40);
 			const layer = makeLayer("layer-1", ["scoped", "other"]);
-			const store = makeStore([layer], { scoped, other }, ["scoped"]);
+			const store = makeStore([layer], { scoped, other }, [
+				{ kind: "element", id: "scoped" },
+			]);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
 
@@ -880,7 +885,7 @@ describe("SpatialIndex", () => {
 			const store = makeStore(
 				[makeLayer("layer-1", ["scoped"]), makeLayer("layer-2", [])],
 				{ scoped },
-				["scoped"],
+				[{ kind: "element", id: "scoped" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -924,7 +929,7 @@ describe("SpatialIndex", () => {
 			});
 			const layer = makeLayer("layer-1", ["group-1"]);
 			const store = makeStore([layer], { "group-1": group, "child-1": child }, [
-				"group-1",
+				{ kind: "element", id: "group-1" },
 			]);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -1112,7 +1117,7 @@ describe("SpatialIndex", () => {
 			const store = makeStore(
 				[layer],
 				{ "clip-1": clipGroup, "child-1": child },
-				["clip-1"],
+				[{ kind: "element", id: "clip-1" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -1150,7 +1155,7 @@ describe("SpatialIndex", () => {
 					"clip-inner": clipGroup,
 					"child-1": child,
 				},
-				["outer"],
+				[{ kind: "element", id: "outer" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -1188,7 +1193,7 @@ describe("SpatialIndex", () => {
 					"clip-shape": clipShape,
 					"path-a": pathChild,
 				},
-				["outer"],
+				[{ kind: "element", id: "outer" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -1315,7 +1320,7 @@ describe("SpatialIndex", () => {
 					"clip-shape": clipShape,
 					"path-a": pathChild,
 				},
-				["outer"],
+				[{ kind: "element", id: "outer" }],
 			);
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
@@ -1810,6 +1815,65 @@ describe("SpatialIndex", () => {
 		});
 	});
 
+	describe("editing a repeat on one of its copies", () => {
+		// Source image spans -50..50; spacingX=200 draws a second copy at
+		// 150..250, which is copy 1.
+		function setup(instanceIndex: number) {
+			const src = makeImage("src", 0, 0, 100, 100);
+			const repeat = {
+				type: "repeat",
+				id: "repeat-1",
+				sourceIds: ["src"],
+				mode: "grid",
+				grid: { width: 300, height: 0, spacingX: 200, spacingY: 0 },
+				radial: {
+					count: 1,
+					radius: 0,
+					startAngle: 0,
+					sweep: Math.PI * 2,
+					rotateInstances: false,
+				},
+				mirror: { axisAngle: Math.PI / 2, offset: 0 },
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as RepeatObject;
+			const store = makeStore(
+				[makeLayer("layer-1", ["repeat-1"])],
+				{ "repeat-1": repeat, src },
+				[{ kind: "repeatInstance", id: "repeat-1", instanceIndex }],
+			);
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+			return idx;
+		}
+
+		it("should hit the source where the edited copy is drawn", () => {
+			const idx = setup(1);
+
+			expect(idx.findElementAtPoint("layer-1", 200, 0)?.id).toBe("src");
+			expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+		});
+
+		it("should place the source on the edited copy", () => {
+			const idx = setup(1);
+
+			expect(idx.getAncestorTransform("src")?.x).toBeCloseTo(200);
+			expect(idx.getWorldBounds("src")).toMatchObject({
+				minX: 150,
+				maxX: 250,
+			});
+		});
+
+		it("should tell which copy is drawn at a point", () => {
+			const idx = setup(0);
+
+			expect(idx.findRepeatInstanceAtPoint("repeat-1", 0, 0)).toBe(0);
+			expect(idx.findRepeatInstanceAtPoint("repeat-1", 200, 0)).toBe(1);
+			expect(idx.findRepeatInstanceAtPoint("repeat-1", 120, 0)).toBeNull();
+		});
+	});
+
 	describe("setTextBounds (precise text layout bounds)", () => {
 		// Chosen to differ from the synchronous estimate (0,-24)-(80,16) on every edge.
 		const preciseLocal = () => brandLocalBBox(makeBounds(5, -18, 60, 9));
@@ -2148,7 +2212,7 @@ describe("compound path hit testing", () => {
 	it("should still select a source on its own inside the compound's scope", () => {
 		const objects = makeSubtractedCompound();
 		const idx = createFilteredIndex(["compound-1"], objects, {
-			editingScopeStack: ["compound-1"],
+			editingScopeStack: [{ kind: "element", id: "compound-1" }],
 		});
 
 		// The cutter has no fill, so it is picked by its outline (x = 100).
@@ -2170,7 +2234,7 @@ describe("compound path hit testing", () => {
 			},
 		});
 		const idx = createFilteredIndex(["compound-1"], objects, {
-			editingScopeStack: ["compound-1"],
+			editingScopeStack: [{ kind: "element", id: "compound-1" }],
 		});
 
 		const start = idx.getElementWorldSegments("base")?.[0].start;
@@ -2332,7 +2396,7 @@ describe("geometry filter hit testing", () => {
 		const idx = createFilteredIndex(
 			["group-1"],
 			{ "group-1": group, "child-1": child },
-			{ editingScopeStack: ["group-1"] },
+			{ editingScopeStack: [{ kind: "element", id: "group-1" }] },
 		);
 
 		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(child);
@@ -2557,7 +2621,9 @@ describe("hit testing inside rotated and scaled groups", () => {
 	});
 
 	it("findElementAtPoint inside the outer group's scope returns the child drawn at each point", () => {
-		const idx = createNestedTransformedGroupIndex(["outer"]);
+		const idx = createNestedTransformedGroupIndex([
+			{ kind: "element", id: "outer" },
+		]);
 		const mismatches = samplePoints(idx).filter(
 			({ x, y }) =>
 				(idx.findElementAtPoint("layer-1", x, y, 0)?.id ?? null) !==
@@ -2567,7 +2633,9 @@ describe("hit testing inside rotated and scaled groups", () => {
 	});
 
 	it("findElementsInRect inside the outer group's scope finds the children drawn under a small rect", () => {
-		const idx = createNestedTransformedGroupIndex(["outer"]);
+		const idx = createNestedTransformedGroupIndex([
+			{ kind: "element", id: "outer" },
+		]);
 		const mismatches = samplePoints(idx).filter(({ x, y }) => {
 			const found = idx
 				.findElementsInRect("layer-1", x - 0.5, y - 0.5, x + 0.5, y + 0.5)
@@ -2671,7 +2739,7 @@ const EDGE_CLEARANCE = 3;
  * filled squares: one with its own rotation, one with its own scale.
  */
 function createNestedTransformedGroupIndex(
-	editingScopeStack: string[] = [],
+	editingScopeStack: EditingScope[] = [],
 ): SpatialIndex {
 	const rotated = {
 		...makeFilledSquare("p-rotated", 50),

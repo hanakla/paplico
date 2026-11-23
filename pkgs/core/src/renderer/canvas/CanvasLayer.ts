@@ -10,6 +10,7 @@ import {
 	resolveElementsMapAppearance,
 } from "../../document/appearancePresets";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
+import type { EditingScope } from "../../document/editingScope";
 import { collectDrawableAppearances } from "../../document/elementGeometry/appearancePasses";
 import {
 	classifyFilterHandler,
@@ -1762,7 +1763,7 @@ export class CanvasLayer {
 					),
 				(path) => collectDrawableAppearances(path, this.filterRenderer).length,
 				filterPlanIds,
-				this.renderState.editingScopeStack.at(-1),
+				this.renderState.editingScopeStack.at(-1)?.id,
 				this.elementHierarchy.parentMap,
 			);
 		for (const [elementId, plan] of maskApplicationPlans) {
@@ -2725,7 +2726,7 @@ export class CanvasLayer {
 			renderTarget: FGTextureHandle;
 			changedElements?: FrameRequest["changedElements"];
 		},
-		editingScopeStack?: string[],
+		editingScopeStack?: EditingScope[],
 		isolatedElementId?: string | null,
 		profiler?: GPUTimingProfiler | null,
 		disableViewportCulling?: boolean,
@@ -3097,7 +3098,7 @@ export class CanvasLayer {
 		// frame, so the frame leaves out what that pass redraws. Otherwise the
 		// copy holds the scope's own content under the redraw, and a glass solid
 		// in the scope refracts it.
-		const editingScopeId = this.renderState.editingScopeStack.at(-1);
+		const editingScopeId = this.renderState.editingScopeStack.at(-1)?.id;
 		const scopedLayer = this.activeDocument?.layers.find(
 			(layer) => layer.id === editingScopeId,
 		);
@@ -4772,7 +4773,7 @@ export class CanvasLayer {
 		// Composite-level editing isolation dimming (editing scope / scene3d
 		// edit): dim everything, then re-render the editing subtree at full
 		// opacity on top.
-		const editingScopeId = this.renderState.editingScopeStack.at(-1);
+		const editingScopeId = this.renderState.editingScopeStack.at(-1)?.id;
 		if (
 			(editingScopeId || this.renderState.isolatedElementId) &&
 			this.viewportState.bounds &&
@@ -4837,9 +4838,9 @@ export class CanvasLayer {
 				// Opacity of ancestors above the editing container; the container's
 				// own opacity is applied per-element by renderElements below.
 				let ancestorOpacity = 1.0;
-				for (const stackId of this.renderState.editingScopeStack) {
-					if (stackId === editingScopeId) continue;
-					const g = ctx.elementsMap.get(stackId);
+				for (const scope of this.renderState.editingScopeStack) {
+					if (scope.id === editingScopeId) continue;
+					const g = ctx.elementsMap.get(scope.id);
 					if (g) ancestorOpacity *= g.opacity ?? 1.0;
 				}
 
@@ -5857,7 +5858,7 @@ export class CanvasLayer {
 		skipElementIds: ReadonlySet<string> | undefined,
 	): void {
 		if (this.renderState.isExport || this.frameClipGroups.size === 0) return;
-		const editingScopeId = this.renderState.editingScopeStack.at(-1);
+		const editingScopeId = this.renderState.editingScopeStack.at(-1)?.id;
 		const parentMap = this.elementHierarchy.parentMap;
 
 		// Whether the group and everything in it draws in a pass that cannot
