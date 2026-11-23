@@ -3,11 +3,22 @@
 import { RotateCcw } from "lucide-react";
 import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
-import { Input } from "@/components/Input";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
+import { roundToStep, stepDecimals } from "@/utils/stepPrecision";
+
+/** Shear input clamp: tan() blows up approaching ±90°. */
+const MAX_SKEW_DEG = 89;
+/** Field steps; values are shown and committed at each step's precision. */
+const STEP = {
+	fontSize: 1,
+	kerningAdjust: 0.01,
+	lineHeight: 0.05,
+	scalePercent: 1,
+	degrees: 1,
+} as const;
 
 /**
  * Touch-type context bar: absolute-value adjustments for the selected chars
@@ -36,61 +47,74 @@ export function CharTouchAdjustControls() {
 			paplico.textToolController?.getTextTool()?.setCharTouchValues(values);
 		},
 	);
-	const handleSizeChange = useEventCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const value = Number.parseFloat(e.target.value);
-			if (!Number.isNaN(value) && value > 0) apply({ fontSize: value });
-		},
-	);
-	const handleKerningChange = useEventCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const value = Number.parseFloat(e.target.value);
-			if (!Number.isNaN(value)) apply({ kerningAdjust: value });
-		},
-	);
+	const handleSizeChange = useEventCallback((input: string | undefined) => {
+		const value = Number.parseFloat(input ?? "");
+		if (!Number.isNaN(value) && value > 0)
+			apply({ fontSize: roundToStep(value, STEP.fontSize) });
+	});
+	const handleKerningChange = useEventCallback((input: string | undefined) => {
+		const value = Number.parseFloat(input ?? "");
+		if (!Number.isNaN(value))
+			apply({ kerningAdjust: roundToStep(value, STEP.kerningAdjust) });
+	});
 	const handleLineHeightChange = useEventCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const value = Number.parseFloat(e.target.value);
-			if (!Number.isNaN(value) && value > 0) apply({ lineHeight: value });
+		(input: string | undefined) => {
+			const value = Number.parseFloat(input ?? "");
+			if (!Number.isNaN(value) && value > 0)
+				apply({ lineHeight: roundToStep(value, STEP.lineHeight) });
 		},
 	);
 	// The fields show percent; the tool takes a multiplier
 	const handleScaleXChange = useEventCallback((value: string | undefined) => {
 		const percent = Number.parseFloat(value ?? "");
-		if (!Number.isNaN(percent) && percent > 0) apply({ scaleX: percent / 100 });
+		if (!Number.isNaN(percent) && percent > 0)
+			apply({ scaleX: roundToStep(percent, STEP.scalePercent) / 100 });
 	});
 	const handleScaleYChange = useEventCallback((value: string | undefined) => {
 		const percent = Number.parseFloat(value ?? "");
-		if (!Number.isNaN(percent) && percent > 0) apply({ scaleY: percent / 100 });
+		if (!Number.isNaN(percent) && percent > 0)
+			apply({ scaleY: roundToStep(percent, STEP.scalePercent) / 100 });
 	});
-	const handleRotationChange = useEventCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const value = Number.parseFloat(e.target.value);
-			if (!Number.isNaN(value)) apply({ rotation: value });
-		},
-	);
-	const handleSkewXChange = useEventCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const value = Number.parseFloat(e.target.value);
-			if (!Number.isNaN(value)) apply({ skewX: value });
-		},
-	);
-	const handleSkewYChange = useEventCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const value = Number.parseFloat(e.target.value);
-			if (!Number.isNaN(value)) apply({ skewY: value });
-		},
-	);
+	const handleRotationChange = useEventCallback((input: string | undefined) => {
+		const value = Number.parseFloat(input ?? "");
+		if (!Number.isNaN(value))
+			apply({ rotation: roundToStep(value, STEP.degrees) });
+	});
+	const handleSkewXChange = useEventCallback((input: string | undefined) => {
+		const value = Number.parseFloat(input ?? "");
+		if (!Number.isNaN(value))
+			apply({ skewX: clampSkew(roundToStep(value, STEP.degrees)) });
+	});
+	const handleSkewYChange = useEventCallback((input: string | undefined) => {
+		const value = Number.parseFloat(input ?? "");
+		if (!Number.isNaN(value))
+			apply({ skewY: clampSkew(roundToStep(value, STEP.degrees)) });
+	});
 	const handleReset = useEventCallback(() => {
 		paplico.textToolController?.getTextTool()?.resetCharTouchValues();
 	});
+	// Panel commits merge into the open undo step so a scrub stays one step.
+	// Closing it when an edit starts and ends keeps that step apart from the
+	// edits before and after, such as a handle drag a moment away.
+	const closeUndoStep = useEventCallback(() => {
+		paplico.commands.stopUndoCapture();
+	});
+	// A held arrow key repeats keydown; its steps stay in one undo step
+	const handleKeyDownCapture = useEventCallback((e: React.KeyboardEvent) => {
+		if (!e.repeat) closeUndoStep();
+	});
 
-	const round3 = (value: number) => Math.round(value * 1000) / 1000;
+	const format = (value: number | undefined, step: number) =>
+		value?.toFixed(stepDecimals(step)) ?? "";
 	const mixed = (value: number | undefined) =>
 		selection && value === undefined ? t("actionsPanel.mixed") : undefined;
 
 	const field = (label: string, input: React.ReactNode) => (
-		<div className="flex items-center gap-1 px-0.5">
+		<div
+			className="flex items-center gap-1.5 px-1.5"
+			onPointerDownCapture={closeUndoStep}
+			onKeyDownCapture={handleKeyDownCapture}
+		>
 			<span className="text-[10px] whitespace-nowrap text-muted-foreground">
 				{label}
 			</span>
@@ -102,43 +126,48 @@ export function CharTouchAdjustControls() {
 		<>
 			{field(
 				t("actionsPanel.size"),
-				<Input
+				<FakeInput
 					type="number"
 					$size="xs"
 					aria-label={t("actionsPanel.size")}
-					step="1"
-					value={selection?.fontSize != null ? round3(selection.fontSize) : ""}
+					step={STEP.fontSize}
+					min={1}
+					value={format(selection?.fontSize, STEP.fontSize)}
 					onChange={handleSizeChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.fontSize) ?? "24"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
 			{field(
 				t("actionsPanel.letterSpacing"),
-				<Input
+				<FakeInput
 					type="number"
 					$size="xs"
 					aria-label={t("actionsPanel.letterSpacing")}
-					step="0.01"
-					value={selection?.kerningAdjust ?? ""}
+					step={STEP.kerningAdjust}
+					value={format(selection?.kerningAdjust, STEP.kerningAdjust)}
 					onChange={handleKerningChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.kerningAdjust) ?? "0"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
 			{field(
 				t("actionsPanel.lineSpacing"),
-				<Input
+				<FakeInput
 					type="number"
 					$size="xs"
 					aria-label={t("actionsPanel.lineSpacing")}
-					step="0.05"
-					value={selection?.lineHeight ?? ""}
+					step={STEP.lineHeight}
+					min={0.1}
+					value={format(selection?.lineHeight, STEP.lineHeight)}
 					onChange={handleLineHeightChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.lineHeight) ?? "1.5"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
@@ -148,17 +177,17 @@ export function CharTouchAdjustControls() {
 					type="number"
 					$size="xs"
 					aria-label={t("contextActions.charScaleX")}
-					step={1}
+					step={STEP.scalePercent}
 					min={10}
 					max={1000}
-					value={
-						selection?.scaleX != null
-							? String(round3(selection.scaleX * 100))
-							: ""
-					}
+					value={format(
+						selection?.scaleX != null ? selection.scaleX * 100 : undefined,
+						STEP.scalePercent,
+					)}
 					onChange={handleScaleXChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.scaleX) ?? "100"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
@@ -168,59 +197,62 @@ export function CharTouchAdjustControls() {
 					type="number"
 					$size="xs"
 					aria-label={t("contextActions.charScaleY")}
-					step={1}
+					step={STEP.scalePercent}
 					min={10}
 					max={1000}
-					value={
-						selection?.scaleY != null
-							? String(round3(selection.scaleY * 100))
-							: ""
-					}
+					value={format(
+						selection?.scaleY != null ? selection.scaleY * 100 : undefined,
+						STEP.scalePercent,
+					)}
 					onChange={handleScaleYChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.scaleY) ?? "100"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
 			{field(
 				t("contextActions.charAngle"),
-				<Input
+				<FakeInput
 					type="number"
 					$size="xs"
 					aria-label={t("contextActions.charAngle")}
-					step="1"
-					value={selection?.rotation ?? ""}
+					step={STEP.degrees}
+					value={format(selection?.rotation, STEP.degrees)}
 					onChange={handleRotationChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.rotation) ?? "0"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
 			{field(
 				t("contextActions.charSkewX"),
-				<Input
+				<FakeInput
 					type="number"
 					$size="xs"
 					aria-label={t("contextActions.charSkewX")}
-					step="1"
-					value={selection?.skewX ?? ""}
+					step={STEP.degrees}
+					value={format(selection?.skewX, STEP.degrees)}
 					onChange={handleSkewXChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.skewX) ?? "0"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
 			{field(
 				t("contextActions.charSkewY"),
-				<Input
+				<FakeInput
 					type="number"
 					$size="xs"
 					aria-label={t("contextActions.charSkewY")}
-					step="1"
-					value={selection?.skewY ?? ""}
+					step={STEP.degrees}
+					value={format(selection?.skewY, STEP.degrees)}
 					onChange={handleSkewYChange}
+					onValueCommitted={closeUndoStep}
 					placeholder={mixed(selection?.skewY) ?? "0"}
-					className="w-14"
+					className="tabular-nums"
 					disabled={disabled}
 				/>,
 			)}
@@ -237,4 +269,8 @@ export function CharTouchAdjustControls() {
 			</Tooltip>
 		</>
 	);
+}
+
+function clampSkew(degrees: number): number {
+	return Math.min(MAX_SKEW_DEG, Math.max(-MAX_SKEW_DEG, degrees));
 }

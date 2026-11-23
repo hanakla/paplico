@@ -3169,11 +3169,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.textInteraction.hitTestGlyph(textElement, worldX, worldY),
 			getTextGlyphQuads: (textElement, charIndices) =>
 				this.textInteraction.glyphQuads(textElement, charIndices),
-			textCharTouchCommit: (text) => {
+			textCharTouchCommit: (text, { newUndoStep }) => {
 				const layerId = this.rendererStore.currentLayerId;
 				if (!layerId) return undefined;
-				// One drag = one undo step: break out of the capture-merge window
-				this.commands.stopUndoCapture();
+				if (newUndoStep) this.commands.stopUndoCapture();
 				this.commands.updateElement(layerId, text.id, text);
 				const stored = this.rendererStore.document.objects[text.id];
 				// Glyphs moved, so refresh precise bounds/selection like textComplete

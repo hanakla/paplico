@@ -416,9 +416,14 @@ export type ToolContextOptions = {
 		quads: TextGlyphQuad[];
 		elementTransform: { rotation: number; scaleX: number; scaleY: number };
 	}>;
-	/** Touch-type: persist charOverride edits as one undo step; returns the
-	 * stored clone (like persistTextEdit) and refreshes bounds/selection. */
-	textCharTouchCommit: (text: TextElement) => TextElement | undefined;
+	/** Touch-type: persist charOverride edits; returns the stored clone (like
+	 * persistTextEdit) and refreshes bounds/selection. `newUndoStep: false`
+	 * lets a burst of commits, such as a scrubbed panel field, merge into the
+	 * open undo step. */
+	textCharTouchCommit: (
+		text: TextElement,
+		options: { newUndoStep: boolean },
+	) => TextElement | undefined;
 	/** Touch-type: reflect tool-side mode exits back into toolSettings */
 	textCharTouchModeChange: (enabled: boolean) => void;
 

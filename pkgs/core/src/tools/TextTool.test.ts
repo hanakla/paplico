@@ -1428,6 +1428,9 @@ describe("TextTool char touch mode", () => {
 		);
 
 		expect(textCharTouchCommit).toHaveBeenCalledTimes(1);
+		expect(textCharTouchCommit.mock.calls[0][1]).toEqual({
+			newUndoStep: true,
+		});
 		const committed = textCharTouchCommit.mock.calls[0][0] as TextElement;
 		const overrides =
 			committed.content.paragraphs[0].runs[0].charOverrides ?? [];
@@ -1732,6 +1735,28 @@ describe("TextTool char touch mode", () => {
 		expect(overrides.some((o) => o.charIndex === 0)).toBe(false);
 		expect(tool.getCharTouchSelection()?.rotation).toBe(0);
 		expect(tool.getCharTouchSelection()?.kerningAdjust).toBe(0);
+	});
+
+	it("should merge panel values into the open undo step but start a new one on reset", async () => {
+		const { tool, textCharTouchCommit } = setupSession();
+
+		tool.onPointerDown(
+			ev(405, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		await flush();
+
+		tool.setCharTouchValues({ rotation: 10 });
+		tool.setCharTouchValues({ rotation: 11 });
+		tool.resetCharTouchValues();
+
+		expect(textCharTouchCommit.mock.calls.map((call) => call[1])).toEqual([
+			{ newUndoStep: false },
+			{ newUndoStep: false },
+			{ newUndoStep: true },
+		]);
 	});
 
 	it("should resync the session from the store on refreshUI (undo/redo)", async () => {

@@ -164,6 +164,85 @@ describe("FakeInput", () => {
 		});
 	});
 
+	describe("when a numeric edit ends", () => {
+		it("should report the last scrubbed value once on release", () => {
+			const onValueCommitted = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					step={1}
+					value="10"
+					onChange={vi.fn()}
+					onValueCommitted={onValueCommitted}
+				/>,
+			);
+			const field = view.getByText("10");
+
+			fireEvent.pointerDown(field, { clientX: 0, pointerId: 1 });
+			fireEvent.pointerMove(field, { clientX: 15, pointerId: 1 });
+			fireEvent.pointerMove(field, { clientX: 30, pointerId: 1 });
+			expect(onValueCommitted).not.toHaveBeenCalled();
+			fireEvent.pointerUp(field, { clientX: 30, pointerId: 1 });
+
+			expect(onValueCommitted.mock.calls).toEqual([["20"]]);
+		});
+
+		it("should report a held arrow key's value once on key release", () => {
+			const onValueCommitted = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					value="10"
+					onChange={vi.fn()}
+					onValueCommitted={onValueCommitted}
+				/>,
+			);
+			const field = view.getByRole("spinbutton");
+
+			fireEvent.keyDown(field, { key: "ArrowUp" });
+			fireEvent.keyDown(field, { key: "ArrowUp", repeat: true });
+			expect(onValueCommitted).not.toHaveBeenCalled();
+			fireEvent.keyUp(field, { key: "ArrowUp" });
+
+			expect(onValueCommitted.mock.calls).toHaveLength(1);
+		});
+
+		it("should report a value typed into the editor on commit", () => {
+			const onValueCommitted = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					value="10"
+					onChange={vi.fn()}
+					onValueCommitted={onValueCommitted}
+				/>,
+			);
+			fireEvent.doubleClick(view.getByText("10"));
+
+			typeAndCommit(view, "12");
+
+			expect(onValueCommitted.mock.calls).toEqual([["12"]]);
+		});
+
+		it("should not report a press that changed nothing", () => {
+			const onValueCommitted = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					value="10"
+					onChange={vi.fn()}
+					onValueCommitted={onValueCommitted}
+				/>,
+			);
+			const field = view.getByText("10");
+
+			fireEvent.pointerDown(field, { clientX: 0, pointerId: 1 });
+			fireEvent.pointerUp(field, { clientX: 0, pointerId: 1 });
+
+			expect(onValueCommitted).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("when the field is textual", () => {
 		it("should commit the typed text as it is", () => {
 			const onChange = vi.fn();

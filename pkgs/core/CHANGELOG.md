@@ -28,9 +28,11 @@
   - `ToolContext.reference3dEdit` is removed. Use `scene3dOpenEditor` instead.
   - `YjsProvider.groupElements` accepts a layer or group ID as its first argument. `groupElementsInGroup` is removed. Use `groupElements` instead.
   - `RendererState.editingScopeStack` holds `EditingScope` entries instead of IDs. Read an entry's ID from `id`, and whether it is an element, a layer or a repeat copy from `kind`.
+  - `ToolContext.textCharTouchCommit` takes a second argument, `{ newUndoStep }`. Pass `true` to keep the commit out of the open undo step.
 - **Tools**
   - 3D scene tool: an orbit turns around the selected node instead of the camera's target.
   - Text tool touch type: dragging a corner handle stretches the selected characters' width and height apart with `CharOverride.scaleX` and `scaleY` instead of scaling their size. Shift+drag scales their size. `getCharTouchSelection()` and `setCharTouchValues()` read and write the two values.
+  - Text tool touch type: `setCharTouchValues()` calls in quick succession, such as a scrubbed field, merge into one undo step instead of one step each.
   - 3D scene tool: a press on empty space deselects the node on release without a drag instead of on press.
 - **Elements**
   - A group with an opacity of its own lets the blend modes of its children reach what is under the group instead of only what the group holds. Set `Group.isolated` to keep them inside the group.

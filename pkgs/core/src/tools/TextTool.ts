@@ -1830,7 +1830,9 @@ export class TextTool implements Tool {
 		if (!session?.drag) return;
 		session.drag = null;
 
-		const latest = this.context.textCharTouchCommit(session.textElement);
+		const latest = this.context.textCharTouchCommit(session.textElement, {
+			newUndoStep: true,
+		});
 		if (latest) session.textElement = latest;
 		// Drop the drag preview override; the committed element renders now
 		this.options.previewUpdate?.(null);
@@ -1881,7 +1883,8 @@ export class TextTool implements Tool {
 
 	/**
 	 * Absolute-value adjustments from the panel, applied to every selected
-	 * char and persisted (input changes are discrete; each call is one commit)
+	 * char and persisted. Calls in quick succession, such as a scrubbed field,
+	 * merge into one undo step.
 	 */
 	public setCharTouchValues(values: {
 		/** Target effective font size in px (stored as a per-char multiplier) */
@@ -1937,7 +1940,9 @@ export class TextTool implements Tool {
 			}
 		}
 
-		const latest = this.context.textCharTouchCommit(session.textElement);
+		const latest = this.context.textCharTouchCommit(session.textElement, {
+			newUndoStep: false,
+		});
 		if (latest) session.textElement = latest;
 		this.options.previewUpdate?.(null);
 		void this.refreshCharTouchQuads();
@@ -1964,7 +1969,9 @@ export class TextTool implements Tool {
 		}
 		if (!changed) return;
 
-		const latest = this.context.textCharTouchCommit(session.textElement);
+		const latest = this.context.textCharTouchCommit(session.textElement, {
+			newUndoStep: true,
+		});
 		if (latest) session.textElement = latest;
 		this.options.previewUpdate?.(null);
 		void this.refreshCharTouchQuads();

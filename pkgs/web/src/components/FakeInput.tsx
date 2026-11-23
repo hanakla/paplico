@@ -48,6 +48,11 @@ type FakeInputProps = {
 	value?: string | null;
 	placeholder?: string;
 	onChange: (value: string | undefined) => void;
+	/**
+	 * Runs after `onChange` when an edit ends: the editor commits a new value,
+	 * the pointer is released after a scrub, or a held arrow key is released.
+	 */
+	onValueCommitted?: (value: string | undefined) => void;
 	type?: React.HTMLInputTypeAttribute;
 	step?: number | string;
 	/** Clamp bounds applied to scrubbing and arrow-key adjustments. */
@@ -79,6 +84,7 @@ function FakeInputRoot({
 	value,
 	placeholder,
 	onChange,
+	onValueCommitted,
 	type,
 	step,
 	min,
@@ -117,6 +123,8 @@ function FakeInputRoot({
 		null,
 	);
 	const didScrub = useRef(false);
+	// The last value a scrub or an arrow key sent, reported when that edit ends
+	const uncommitted = useRef<string | null>(null);
 
 	const isNumber = type === "number";
 
@@ -144,8 +152,10 @@ function FakeInputRoot({
 
 		if (next && next !== value) {
 			onChange(next);
+			onValueCommitted?.(next);
 		} else if (!next && value) {
 			onChange(undefined);
+			onValueCommitted?.(undefined);
 		}
 		setEditValue(next || value || "");
 	});
@@ -240,7 +250,15 @@ function FakeInputRoot({
 		let next = Math.round(raw / snap) * snap;
 		if (min != null) next = Math.max(min, next);
 		if (max != null) next = Math.min(max, next);
-		onChange(String(Number(next.toFixed(6))));
+		const nextValue = String(Number(next.toFixed(6)));
+		onChange(nextValue);
+		uncommitted.current = nextValue;
+	});
+
+	const commitUncommitted = useEventCallback(() => {
+		if (uncommitted.current == null) return;
+		onValueCommitted?.(uncommitted.current);
+		uncommitted.current = null;
 	});
 
 	const handleNumberPointerUp = useEventCallback((e: React.PointerEvent) => {
@@ -251,6 +269,7 @@ function FakeInputRoot({
 			scrubStart.current = null;
 		}
 		clearLongPress();
+		commitUncommitted();
 	});
 
 	const handleDoubleClick = useEventCallback((e: React.MouseEvent) => {
@@ -327,16 +346,16 @@ function FakeInputRoot({
 				!e.nativeEvent.isComposing &&
 				(e.key === "ArrowUp" || e.key === "ArrowDown")
 			) {
-				onChange(
-					stepNumber(
-						scrubBase,
-						e.key === "ArrowUp" ? 1 : -1,
-						step,
-						e.shiftKey,
-						min,
-						max,
-					),
+				const nextValue = stepNumber(
+					scrubBase,
+					e.key === "ArrowUp" ? 1 : -1,
+					step,
+					e.shiftKey,
+					min,
+					max,
 				);
+				onChange(nextValue);
+				uncommitted.current = nextValue;
 				return;
 			}
 
@@ -379,6 +398,7 @@ function FakeInputRoot({
 			aria-valuemax={isNumber ? max : undefined}
 			onClick={disabled || isClickMode ? handleClickPointerUp : undefined}
 			onKeyDown={handleKeydown}
+			onKeyUp={commitUncommitted}
 			onDoubleClick={disabled || isClickMode ? undefined : handleDoubleClick}
 			onPointerDown={
 				disabled

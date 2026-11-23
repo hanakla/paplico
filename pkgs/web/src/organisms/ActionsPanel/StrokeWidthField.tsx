@@ -4,6 +4,7 @@ import { FakeInput } from "@/components/FakeInput";
 import { InfiniteSlider, Slider } from "@/components/Slider";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
+import { roundToStep, stepDecimals } from "@/utils/stepPrecision";
 
 export const StrokeWidthField = memo(function StrokeWidthField({
 	label,
@@ -288,14 +289,4 @@ function SliderOverlay({
 		</div>,
 		document.body,
 	);
-}
-
-/** Decimal places implied by `step` (e.g. 0.1 → 1, 0.01 → 2, 1 → 0). */
-function stepDecimals(step: number): number {
-	return step >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(step)));
-}
-
-/** Round a value to the precision implied by `step`. */
-function roundToStep(value: number, step: number): number {
-	return Number(value.toFixed(stepDecimals(step)));
 }
