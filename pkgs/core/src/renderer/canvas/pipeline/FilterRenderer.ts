@@ -117,9 +117,15 @@ export interface FilterGeometryContext {
  * the complete element region, so filter shaders need not account for
  * viewport clipping or canvas-size clamping.
  */
-interface FilterCoordinateSpace {
+export interface FilterCoordinateSpace {
 	worldSize: { width: number; height: number };
 	sourceOffset: { x: number; y: number };
+	/**
+	 * The element's own bounds inside the full region, in world px with Y
+	 * increasing downwards. Present on backdrop passes, where the region
+	 * reaches past the element by the filters' expansion margin.
+	 */
+	elementRect?: { x: number; y: number; width: number; height: number };
 }
 
 export interface FilterProcessorContext {
@@ -196,6 +202,12 @@ export interface FilterProcessorContext {
 	 * pass replaces the working texture (the sizes no longer correspond).
 	 */
 	sourceGraphicTexture?: GPUTexture;
+	/**
+	 * The element's shape in sourceTexture's texel grid, alpha = coverage.
+	 * Present only on backdrop passes, where sourceTexture holds what lies
+	 * behind the element, and only when a handler declared needsMask.
+	 */
+	maskTexture?: GPUTexture;
 }
 
 /**
@@ -255,17 +267,6 @@ export interface UnderlayResult {
 }
 
 /**
- * Extended context for backdrop filters (like FrostGlass)
- * These filters need access to what's already been rendered
- */
-interface BackdropFilterProcessorContext extends FilterProcessorContext {
-	/** Texture containing the current canvas content (backdrop) */
-	backdropTexture: GPUTexture;
-	/** The mask texture defining where the effect should be applied */
-	maskTexture: GPUTexture;
-}
-
-/**
  * Self-sized output of a post-filter that produces its own texture instead of
  * writing back into the fixed-size source (e.g. extrude3d projects a 3D solid
  * whose bounds exceed the flat element). applyFilters collects these into
@@ -278,8 +279,11 @@ export type PostProcessResult = BlitLayer;
  *  (params-dependent) so a handler can vary by e.g. material. */
 export interface FilterRenderRequirements {
 	/** The renderer must capture the backdrop before this filter runs (it
-	 *  reads ctx.backdropTexture), e.g. frost glass, pixelate. */
+	 *  reads it as ctx.sourceTexture), e.g. frost glass, pixelate. */
 	needsBackdrop: boolean;
+	/** On the backdrop route, postProcess reads ctx.maskTexture: the element's
+	 *  shape is rendered before the chain runs instead of after it. */
+	needsMask: boolean;
 	/**
 	 * postProcess reads ctx.sourceTexture (the element's rasterized flat
 	 * look). False for a self-sizing geometry filter that builds its own
@@ -317,6 +321,7 @@ export interface FilterRenderRequirements {
 
 const DEFAULT_RENDER_REQUIREMENTS: FilterRenderRequirements = {
 	needsBackdrop: false,
+	needsMask: false,
 	needsSourceTexture: true,
 	needsSourceGraphic: false,
 	cropSafe: false,
@@ -993,7 +998,8 @@ export class FilterRenderer {
 	}
 
 	/**
-	 * @param maskTexture - Defines the region where backdrop filters are applied.
+	 * @param maskTexture - The element's shape in sourceTexture's texel grid,
+	 *   handed to backdrop filters as ctx.maskTexture.
 	 * @param dpiScale - Rasterization scale (texels per world px) of the source
 	 *   texture; filter parameters (e.g. blur radius) are scaled by it. For
 	 *   element filters this is the fixed document rasterization scale; for
@@ -1230,9 +1236,9 @@ export class FilterRenderer {
 				backdropBlur,
 				sourceGraphicTexture,
 			};
-			const context: FilterProcessorContext | BackdropFilterProcessorContext =
+			const context: FilterProcessorContext =
 				maskTexture && resolveRenderConfigure(handler, filter).needsBackdrop
-					? { ...base, backdropTexture: sourceTexture, maskTexture }
+					? { ...base, maskTexture }
 					: base;
 
 			const out = handler.postProcess(context, filter);

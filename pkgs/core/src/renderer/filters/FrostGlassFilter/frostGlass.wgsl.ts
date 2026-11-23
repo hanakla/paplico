@@ -9,6 +9,8 @@
  * - FROST_GLASS_SHADER: self-contained separable Gaussian, used as a
  *   fallback when no shared pyramid is available (horizontal pass, then
  *   vertical pass with tint/saturation applied).
+ * - FROST_GLASS_RIM_SHADER: optional last pass that refracts and lights the
+ *   blurred result along the element's rounded edge.
  *
  * Backdrop mask is applied by FilterRenderer after all filter passes.
  */
@@ -108,6 +110,8 @@ struct Uniforms {
 	tintG: f32,
 	tintB: f32,
 	tintOpacity: f32, // 0.0~1.0
+	zoomCenter: vec2f, // pane centre in region uv
+	zoom: f32, // read scale about zoomCenter (1 = read in place)
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -124,7 +128,8 @@ ${FROST_GLASS_COMMON}
 // stay on the self-contained FROST_GLASS_SHADER path.
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-	let regionUv = uniforms.remap.xy + input.texCoord * uniforms.remap.zw;
+	let uv = uniforms.zoomCenter + (input.texCoord - uniforms.zoomCenter) * uniforms.zoom;
+	let regionUv = uniforms.remap.xy + uv * uniforms.remap.zw;
 	let loUv = clamp(regionUv, uniforms.loCtl.zw, vec2f(1.0) - uniforms.loCtl.zw)
 		* uniforms.loCtl.xy;
 	let hiUv = clamp(regionUv, uniforms.hiCtl.zw, vec2f(1.0) - uniforms.hiCtl.zw)
@@ -167,6 +172,8 @@ struct Uniforms {
 	scatterGrain: f32, // block size of the scatter pattern, in world px
 	applyScatter: f32, // 1.0 = displace sample coords (horizontal pass only)
 	dpiScale: f32, // texels per world px of the input texture
+	zoomCenter: vec2f, // pane centre in uv
+	zoom: f32, // read scale about zoomCenter; 1 in the vertical pass
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -182,7 +189,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let texelSize = 1.0 / uniforms.resolution;
 	let offset = uniforms.direction * texelSize;
 
-	var baseCoord = input.texCoord;
+	// A pane above the backdrop reads a wider patch of it. Scaling the read
+	// before the horizontal blur gives the vertical pass the scaled picture.
+	var baseCoord = uniforms.zoomCenter + (input.texCoord - uniforms.zoomCenter) * uniforms.zoom;
 	if (uniforms.applyScatter > 0.5 && uniforms.scatter > 0.0) {
 		baseCoord = scatterCoord(
 			baseCoord,
@@ -244,5 +253,111 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let effectResult = select(result, adjustedResult, doEffects && hasAlpha);
 
 	return effectResult;
+}
+`;
+
+/**
+ * Lens rim pass, run on the blurred backdrop when refraction or highlight is
+ * set. The element is treated as a flat pane whose edge rounds over a band
+ * `bevel` texels wide. Inside that band the backdrop is read from further
+ * inward, the way a convex rim magnifies, and a highlight brightens the rim
+ * where it faces the light. The band is measured with the jump-flood field
+ * seeded on the pixels outside the shape, so each pixel knows the nearest
+ * outside point and therefore its distance and direction to the edge.
+ */
+export const FROST_GLASS_RIM_SHADER = /* wgsl */ `
+struct Uniforms {
+	resolution: vec2f,
+	refraction: f32, // backdrop shift at the very edge, in texels
+	bevel: f32, // width of the rounded rim, in texels
+	aberration: f32, // per-channel spread of the shift (0 = none)
+	highlight: f32, // rim highlight strength (0~1)
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var inputTexture: texture_2d<f32>;
+@group(0) @binding(2) var inputSampler: sampler;
+@group(0) @binding(3) var coordTexture: texture_2d<f32>;
+
+${FROST_GLASS_COMMON}
+
+// Top-left in texture space (y down).
+const LIGHT_DIR = vec2f(-0.70710678, -0.70710678);
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+	let uv = input.texCoord;
+	let base = textureSampleLevel(inputTexture, inputSampler, uv, 0.0);
+	let p = input.position.xy;
+	let seed = textureLoad(coordTexture, vec2i(p), 0).xy;
+	// Pixels outside the shape are their own seed (distance 0); pixels past
+	// the field's reach carry the sentinel. Neither lies on the rim.
+	let dist = distance(seed, p);
+	if (seed.x <= -1e5 || dist < 0.5 || dist >= uniforms.bevel) {
+		return base;
+	}
+
+	let outward = edgeNormal(p, dist);
+	// 0 where the rim meets the flat face, 1 at the edge. Squared so the
+	// shift grows smoothly out of the flat face without a visible crease.
+	let t = 1.0 - clamp(edgeDistance(p) / uniforms.bevel, 0.0, 1.0);
+	let shift = outward * (uniforms.refraction * t * t) / uniforms.resolution;
+	let g = textureSampleLevel(inputTexture, inputSampler, uv - shift, 0.0);
+	let r = textureSampleLevel(
+		inputTexture, inputSampler, uv - shift * (1.0 + uniforms.aberration), 0.0,
+	);
+	let b = textureSampleLevel(
+		inputTexture, inputSampler, uv - shift * (1.0 - uniforms.aberration), 0.0,
+	);
+	let refracted = vec4f(r.r, g.g, b.b, g.a);
+
+	// Both the lit edge and the one opposite it catch light, like a real pane.
+	let facing = abs(dot(outward, LIGHT_DIR));
+	let rim = uniforms.highlight * t * t * t * (0.35 + 0.65 * facing);
+	// Screen toward white inside the premultiplied coverage.
+	return vec4f(
+		refracted.rgb + (vec3f(refracted.a) - refracted.rgb) * rim,
+		refracted.a,
+	);
+}
+
+// The seeds sit on the texel staircase of the shape. The direction to the
+// nearest one swings in a fan around each stair corner, and the distance per
+// texel steps with each stair, which streaks a curved edge. Interpolating the
+// distance between texels smooths the steps, and its slope over a ring that
+// spans several stairs gives the edge's normal. A wider rim shifts the
+// backdrop further, which magnifies any error in the normal, so the ring
+// grows with the rim.
+fn edgeNormal(p: vec2f, dist: f32) -> vec2f {
+	let radius = max(max(3.0, uniforms.bevel * 0.15), dist * 0.5);
+	var inward = vec2f(0.0);
+	for (var i = 0; i < 16; i++) {
+		let angle = f32(i) * 0.39269908;
+		let direction = vec2f(cos(angle), sin(angle));
+		inward += edgeDistance(p + direction * radius) * direction;
+	}
+	return -normalize(inward);
+}
+
+// Distance to the edge at any point, bilinear between the texel centres.
+// Outside the shape it is 0.
+fn edgeDistance(q: vec2f) -> f32 {
+	let origin = floor(q - 0.5);
+	let f = q - 0.5 - origin;
+	let top = mix(texelDistance(origin), texelDistance(origin + vec2f(1.0, 0.0)), f.x);
+	let bottom = mix(
+		texelDistance(origin + vec2f(0.0, 1.0)),
+		texelDistance(origin + vec2f(1.0, 1.0)),
+		f.x,
+	);
+	return mix(top, bottom, f.y);
+}
+
+fn texelDistance(texel: vec2f) -> f32 {
+	let dims = vec2f(textureDimensions(coordTexture, 0));
+	let centre = clamp(texel, vec2f(0.0), dims - 1.0) + 0.5;
+	let seed = textureLoad(coordTexture, vec2i(centre), 0).xy;
+	// Past the field's reach the pixel is deep inside the flat face.
+	return select(distance(seed, centre), uniforms.bevel, seed.x <= -1e5);
 }
 `;

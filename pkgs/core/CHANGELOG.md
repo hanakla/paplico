@@ -13,6 +13,8 @@
   - `Group.isolated` keeps the blend modes of a group's children from what is under the group.
 - **Filters**
   - The `scribble` filter replaces a filled shape with a zig-zag hatching across its area, drawn with the shape's fill. On a stroke, it hatches the band the stroke covers and paints it with the stroke's color. It is ported from VectorCraft under the MIT License.
+  - The `frost-glass` filter can round the element's edge into a lens. `bevel` sets the width of the rounded edge, `refraction` how far the backdrop bends there, `aberration` how far its colors split, and `highlight` how bright the edge shines.
+  - The `frost-glass` filter can sit above the backdrop. `distance` sets how far, and a farther pane shows a wider patch of what lies behind and around it. It applies only when the filter applies to the backdrop.
 - **Renderer**
   - `Paplico.whenDocumentDrawn()` resolves once the document is drawn on every canvas with the images, text and brush textures it needs, and the GPU has finished.
 - **Text**
